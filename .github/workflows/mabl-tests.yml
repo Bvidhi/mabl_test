@@ -8,7 +8,7 @@ on:
 
 jobs:
   mabl-tests:
-    runs-on: window-latest
+    runs-on: ubantu-latest
 
     steps:
       - name: Checkout repository
