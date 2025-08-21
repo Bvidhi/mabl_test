@@ -8,15 +8,18 @@ on:
 
 jobs:
   mabl-tests:
-    runs-on: windows-latest
+    runs-on: ubuntu-latest
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v3
 
+      - name: Install mabl CLI
+        uses: mablhq/setup-mabl-cli@v1
+
       - name: Run all mabl tests
-        uses: mablhq/github-action@v2
-        with:
-          apiKey: ${{ secrets.MABL_API_KEY }}
-          applicationId: "Regression"
-          environmentId: "UAT"
+        run: |
+          mabl deployments create \
+            --api-key "${{ secrets.MABL_API_KEY }}" \
+            --application-id "Regression" \
+            --environment-id "UAT"
