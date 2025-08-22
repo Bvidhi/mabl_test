@@ -1,4 +1,4 @@
-name: Run all mabl tests
+name: Run mabl tests
 
 on:
   push:
@@ -17,7 +17,7 @@ jobs:
       - name: Install mabl CLI
         uses: mablhq/setup-mabl-cli@v1
 
-      - name: Run all mabl tests
+      - name: Run mabl tests
         run: |
           mabl deployments create \
             --api-key "${{ secrets.MABL_API_KEY }}" \
