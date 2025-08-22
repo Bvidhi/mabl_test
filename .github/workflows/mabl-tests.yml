@@ -22,5 +22,5 @@ jobs:
           mabl deployments create \
             --api-key "${{ secrets.MABL_API_KEY }}" \
             --application-id "nNs6OIfcHyei5SZN26p73A-a" \
-            --environment-id "dlQWOUQ0OGJwGvlvHtIE2Q-e" \
+            --environment-id "m96pKd4PKYeUx2rrkYf7AQ-e" \
 
