@@ -15,7 +15,7 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v3
 
-      - name: Run mabl tests
+      - name: Trigger mabl tests
         uses: mablhq/mabl-action@v2
         with:
           api-key: ${{ secrets.MABL_API_KEY }}
