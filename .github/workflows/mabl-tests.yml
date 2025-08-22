@@ -1,26 +1,23 @@
-name: Run mabl tests
+name: Run Mabl Tests
 
 on:
   push:
-    branches: [ "main" ]
+    branches:
+      - main
+      - develop
   pull_request:
-    branches: [ "main" ]
 
 jobs:
   mabl-tests:
-    runs-on: ubantu-latest
+    runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout repository
+      - name: Checkout code
         uses: actions/checkout@v3
 
-      - name: Install mabl CLI
-        uses: mablhq/setup-mabl-cli@v1
-
       - name: Run mabl tests
-        run: |
-          mabl deployments create \
-            --api-key "${{ secrets.MABL_API_KEY }}" \
-            --application-id "nNs6OIfcHyei5SZN26p73A-a" \
-            --environment-id "dlQWOUQ0OGJwGvlvHtIE2Q-e" \
-            --await-completion
+        uses: mablhq/mabl-action@v2
+        with:
+          api-key: ${{ secrets.MABL_API_KEY }}
+          application-id: "nNs6OIfcHyei5SZN26p73A-a"
+          environment-id: "dlQWOUQ0OGJwGvlvHtIE2Q-e"
