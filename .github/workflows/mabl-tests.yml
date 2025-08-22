@@ -21,4 +21,4 @@ jobs:
         run: |
           mabl deployments create \
             --api-key "${{ secrets.MABL_API_KEY }}" \
-            --await-completion
+            --await-completion \
