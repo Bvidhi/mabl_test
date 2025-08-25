@@ -19,12 +19,14 @@ jobs:
       - name: Install mabl CLI
         uses: mablhq/setup-mabl-cli@v1
 
-      - name: Run all mabl tests
+      - name: Run mabl tests for all environments
         run: |
-          mabl deployments create \
-            --api-key "${{ secrets.MABL_API_KEY }}" \
-            --application-id "nNs6OIfcHyei5SZN26p73A-a" \
-            --environment-id "EHk5lxxAU4okwvuPtxSpEQ-e" \
-            --environment-id "dlQWOUQ0OGJwGvlvHtIE2Q-e" \
-            --environment-id "m96pKd4PKYeUx2rrkYf7AQ-e" \
-            --await-completion
+           ENVIRONMENTS=("EHk5lxxAU4okwvuPtxSpEQ-e" "dlQWOUQ0OGJwGvlvHtIE2Q-e" "m96pKd4PKYeUx2rrkYf7AQ-e")
+           for ENV in "${ENVIRONMENTS[@]}"; do
+           echo "Running deployment for environment $ENV"
+           mabl deployments create \
+           --api-key "${{ secrets.MABL_API_KEY }}" \
+           --application-id "nNs6OIfcHyei5SZN26p73A-a" \
+           --environment-id "$ENV" \
+           --await-completion
+           done
