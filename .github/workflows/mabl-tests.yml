@@ -21,12 +21,8 @@ jobs:
 
       - name: Run mabl tests for all environments
         run: |
-           ENVIRONMENTS=("YSLhJZlsun6k6oWsIVKoRA-e")
-           for ENV in "${ENVIRONMENTS[@]}"; do
-             echo "Running deployment for environment $ENV"
              mabl deployments create \
                --api-key "${{ secrets.API_KEY }}" \
                --application-id "hHYhdkkw2dGZnKkJFkqmyA-a" \
-               --environment-id "$ENV" \
+               --environment-id "YSLhJZlsun6k6oWsIVKoRA-e" \
                --await-completion
-           done
