@@ -21,12 +21,12 @@ jobs:
 
       - name: Run mabl tests for all environments
         run: |
-           ENVIRONMENTS=("EHk5lxxAU4okwvuPtxSpEQ-e" "dlQWOUQ0OGJwGvlvHtIE2Q-e" "m96pKd4PKYeUx2rrkYf7AQ-e")
+           ENVIRONMENTS=("YSLhJZlsun6k6oWsIVKoRA-e")
            for ENV in "${ENVIRONMENTS[@]}"; do
              echo "Running deployment for environment $ENV"
              mabl deployments create \
-               --api-key "${{ secrets.MABL_API_KEY }}" \
-               --application-id "nNs6OIfcHyei5SZN26p73A-a" \
+               --api-key "${{ secrets.API_KEY }}" \
+               --application-id "hHYhdkkw2dGZnKkJFkqmyA" \
                --environment-id "$ENV" \
                --await-completion
            done
