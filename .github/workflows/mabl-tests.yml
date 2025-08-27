@@ -2,9 +2,9 @@ name: Run all mabl tests
 
 on:
   push:
-    branches: ["main"]
+    branches: ["main", "yaml"]
   pull_request:
-    branches: ["main"]
+    branches: ["main", "yaml"]
   workflow_dispatch:
 
 jobs:
