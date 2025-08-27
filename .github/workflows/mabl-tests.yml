@@ -2,7 +2,7 @@ name: Run all Mabl tests
 
 on:
   push:
-    branches: ["*"]       # Runs on any branch
+    branches: ["*"]       # Trigger on any branch
   pull_request:
     branches: ["*"]
   workflow_dispatch:
@@ -45,7 +45,7 @@ jobs:
           RESPONSE=$(curl -s -H "Authorization: Bearer ${{ secrets.BEARER_TOKEN }}" \
             "https://api.mabl.com/results/deployment/${{ steps.trigger.outputs.deployment_id }}/testRuns")
 
-          # If response is empty, set default values
+          # Handle empty or null response
           if [ -z "$RESPONSE" ] || [ "$RESPONSE" = "null" ]; then
             echo "No test runs found."
             echo "total_tests=0" >> $GITHUB_OUTPUT
@@ -55,26 +55,25 @@ jobs:
             exit 0
           fi
 
-          # Parse JSON safely
+          # Extract total tests, duration, test case names, failed count
           total_tests=$(echo "$RESPONSE" | jq '[.test_runs[]?] | length')
           duration=$(echo "$RESPONSE" | jq '[.test_runs[]?.duration_seconds] | add // 0')
           test_case_names=$(echo "$RESPONSE" | jq -r '[.test_runs[]?.name] | join(", ")')
           failed_count=$(echo "$RESPONSE" | jq '[.test_runs[]?.status] | map(select(.!="PASSED")) | length')
-          status="PASS ✅"
-          if [ "$failed_count" -gt 0 ]; then status="FAIL ❌"; fi
+
+          # Compute status
+          if [ "$failed_count" -eq 0 ] && [ "$total_tests" -gt 0 ]; then
+              status="PASS ✅"
+          elif [ "$total_tests" -eq 0 ]; then
+              status="NO TESTS ❌"
+          else
+              status="FAIL ❌"
+          fi
 
           echo "total_tests=$total_tests" >> $GITHUB_OUTPUT
           echo "test_case_names=$test_case_names" >> $GITHUB_OUTPUT
           echo "status=$status" >> $GITHUB_OUTPUT
           echo "duration=$duration" >> $GITHUB_OUTPUT
-
-      - name: Print results to console
-        run: |
-          echo "Mabl Test Results:"
-          echo "Status: ${{ steps.results.outputs.status }}"
-          echo "Total Tests: ${{ steps.results.outputs.total_tests }}"
-          echo "Duration (s): ${{ steps.results.outputs.duration }}"
-          echo "Test Case Names: ${{ steps.results.outputs.test_case_names }}"
 
       - name: Send Teams Adaptive Card
         run: |
@@ -91,11 +90,9 @@ jobs:
                     { "type": "TextBlock", "size": "Large", "weight": "Bolder", "text": "Mabl Test Results" },
                     { "type": "TextBlock", "text": "Plan: Sanity Tests" },
                     { "type": "TextBlock", "text": "Status: ${{ steps.results.outputs.status }}" },
-                    { "type": "FactSet", "facts": [
-                        { "title": "Total Tests", "value": "${{ steps.results.outputs.total_tests }}" },
-                        { "title": "Duration (s)", "value": "${{ steps.results.outputs.duration }}" },
-                        { "title": "Test Case Names", "value": "${{ steps.results.outputs.test_case_names }}" }
-                    ]}
+                    { "type": "TextBlock", "text": "Total Tests: ${{ steps.results.outputs.total_tests }}" },
+                    { "type": "TextBlock", "text": "Duration (s): ${{ steps.results.outputs.duration }}" },
+                    { "type": "TextBlock", "text": "Test Case Names: ${{ steps.results.outputs.test_case_names }}" }
                   ]
                 }
               }
