@@ -1,4 +1,4 @@
-name: Run all mabl tests
+name: Run all Mabl tests
 
 on:
   push:
@@ -18,81 +18,92 @@ jobs:
       - name: Install Mabl CLI
         uses: mablhq/setup-mabl-cli@v1
 
-      - name: Run Mabl deployment
+      - name: Trigger Mabl deployment
         id: run_mabl
         run: |
-          echo "Triggering deployment..."
+          echo "Triggering deployment for branch $GITHUB_REF_NAME ..."
           mabl deployments create \
             --api-key "${{ secrets.API_KEY }}" \
             --application-id "Oonui6hTcPcWFf7v4y4exA-a" \
             --environment-id "JOHGzivFdBgSLdoq2kCagA-e" \
+            --mabl-branch "${GITHUB_REF_NAME}" \
             --await-completion \
-      #       --output json > deployment.json
+            --output json > deployment.json
 
-      #     deployment_id=$(jq -r '.id' deployment.json)
-      #     echo "deployment_id=$deployment_id" >> $GITHUB_OUTPUT
+          deployment_id=$(jq -r '.id' deployment.json)
+          echo "deployment_id=$deployment_id" >> $GITHUB_OUTPUT
 
-      # - name: Fetch test run results
-      #   id: test_runs
-      #   run: |
-      #     echo "Fetching actual test results from Mabl API..."
-      #     curl -s -H "Authorization: Bearer ${{ secrets.MABL_BEARER_TOKEN }}" \
-      #       "https://api.mabl.com/results/deployment/${{ steps.run_mabl.outputs.deployment_id }}/testRuns" \
-      #       -o test_runs.json
+      - name: Fetch actual test results from Mabl API
+        id: test_runs
+        run: |
+          echo "Fetching actual test results from Mabl API..."
+          curl -s -H "Authorization: Bearer ${{ secrets.MABL_BEARER_TOKEN }}" \
+               "https://api.mabl.com/results/deployment/${{ steps.run_mabl.outputs.deployment_id }}/testRuns" \
+               -o test_runs.json
 
-      #     # Total tests
-      #     total_tests=$(jq '.test_runs | length' test_runs.json)
-      #     # Test case names
-      #     test_case_names=$(jq -r '[.test_runs[].name] | join(", ")' test_runs.json)
-      #     # Overall status
-      #     failed_count=$(jq '[.test_runs[].status] | map(select(.!="PASSED")) | length' test_runs.json)
-      #     status="PASS ✅"
-      #     if [ "$failed_count" -gt 0 ]; then status="FAIL ❌"; fi
-      #     # Total duration
-      #     duration=$(jq '[.test_runs[].duration_seconds] | add // 0' test_runs.json)
+          # Check if JSON is empty
+          if [ ! -s test_runs.json ] || ! jq empty test_runs.json; then
+            echo "No test runs found or invalid JSON."
+            echo "total_tests=0" >> $GITHUB_OUTPUT
+            echo "test_case_names=none" >> $GITHUB_OUTPUT
+            echo "status=NO TEST RUNS ❌" >> $GITHUB_OUTPUT
+            echo "duration=0" >> $GITHUB_OUTPUT
+            exit 0
+          fi
 
-      #     echo "total_tests=$total_tests" >> $GITHUB_OUTPUT
-      #     echo "test_case_names=$test_case_names" >> $GITHUB_OUTPUT
-      #     echo "status=$status" >> $GITHUB_OUTPUT
-      #     echo "duration=$duration" >> $GITHUB_OUTPUT
+          # Extract total test runs
+          total_tests=$(jq '.test_runs | length' test_runs.json)
+          # Extract test case names
+          test_case_names=$(jq -r '[.test_runs[].name] | join(", ")' test_runs.json)
+          # Determine overall status
+          failed_count=$(jq '[.test_runs[].status] | map(select(.!="PASSED")) | length' test_runs.json)
+          status="PASS ✅"
+          if [ "$failed_count" -gt 0 ]; then status="FAIL ❌"; fi
+          # Total duration in seconds
+          duration=$(jq '[.test_runs[].duration_seconds] | add // 0' test_runs.json)
 
-      # - name: Notify Teams with Mabl results
-      #   run: |
-      #     curl -X POST -H "Content-Type: application/json" \
-      #     -d '{
-      #       "attachments": [
-      #         {
-      #           "contentType": "application/vnd.microsoft.card.adaptive",
-      #           "content": {
-      #             "$schema": "http://adaptivecards.io/schemas/adaptive-card.json",
-      #             "type": "AdaptiveCard",
-      #             "version": "1.4",
-      #             "body": [
-      #               {
-      #                 "type": "TextBlock",
-      #                 "size": "Large",
-      #                 "weight": "Bolder",
-      #                 "text": "Mabl Test Results"
-      #               },
-      #               {
-      #                 "type": "TextBlock",
-      #                 "text": "Plan: Sanity Tests"
-      #               },
-      #               {
-      #                 "type": "TextBlock",
-      #                 "text": "Status: ${{ steps.test_runs.outputs.status }}"
-      #               },
-      #               {
-      #                 "type": "FactSet",
-      #                 "facts": [
-      #                   { "title": "Total Test Runs", "value": "${{ steps.test_runs.outputs.total_tests }}" },
-      #                   { "title": "Total Duration (s)", "value": "${{ steps.test_runs.outputs.duration }}" },
-      #                   { "title": "Test Case Names", "value": "${{ steps.test_runs.outputs.test_case_names }}" }
-      #                 ]
-      #               }
-      #             ]
-      #           }
-      #         }
-      #       ]
-      #     }' \
-      #     "${{ secrets.POWER_AUTOMATE_URL }}"
+          echo "total_tests=$total_tests" >> $GITHUB_OUTPUT
+          echo "test_case_names=$test_case_names" >> $GITHUB_OUTPUT
+          echo "status=$status" >> $GITHUB_OUTPUT
+          echo "duration=$duration" >> $GITHUB_OUTPUT
+
+      - name: Notify Teams with actual Mabl results
+        run: |
+          curl -X POST -H "Content-Type: application/json" \
+          -d '{
+            "attachments": [
+              {
+                "contentType": "application/vnd.microsoft.card.adaptive",
+                "content": {
+                  "$schema": "http://adaptivecards.io/schemas/adaptive-card.json",
+                  "type": "AdaptiveCard",
+                  "version": "1.4",
+                  "body": [
+                    {
+                      "type": "TextBlock",
+                      "size": "Large",
+                      "weight": "Bolder",
+                      "text": "Mabl Test Results"
+                    },
+                    {
+                      "type": "TextBlock",
+                      "text": "Plan: Sanity Tests"
+                    },
+                    {
+                      "type": "TextBlock",
+                      "text": "Status: ${{ steps.test_runs.outputs.status }}"
+                    },
+                    {
+                      "type": "FactSet",
+                      "facts": [
+                        { "title": "Total Test Runs", "value": "${{ steps.test_runs.outputs.total_tests }}" },
+                        { "title": "Total Duration (s)", "value": "${{ steps.test_runs.outputs.duration }}" },
+                        { "title": "Test Case Names", "value": "${{ steps.test_runs.outputs.test_case_names }}" }
+                      ]
+                    }
+                  ]
+                }
+              }
+            ]
+          }' \
+          "${{ secrets.POWER_AUTOMATE_URL }}"
