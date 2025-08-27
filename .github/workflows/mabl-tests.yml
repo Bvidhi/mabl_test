@@ -29,35 +29,36 @@ jobs:
 
       - name: Notify Teams with Mabl results
         run: |
-          curl -H "Content-Type: application/json" \
-               -d '{
-                 "attachments": [
-                   {
-                     "contentType": "application/vnd.microsoft.card.adaptive",
-                     "content": {
-                       "$schema": "http://adaptivecards.io/schemas/adaptive-card.json",
-                       "type": "AdaptiveCard",
-                       "version": "1.4",
-                       "body": [
-                         {
-                           "type": "TextBlock",
-                           "size": "Large",
-                           "weight": "Bolder",
-                           "text": "Mabl Test Results"
-                         },
-                         {
-                           "type": "TextBlock",
-                           "text": "Plan: Smoke Tests"
-                         },
-                         {
-                           "type": "TextBlock",
-                           "text": "Status: SUCCESS ✅"
-                         }
-                       ]
-                     }
-                   }
-                 ]
-               }' \
-           ${{ secrets.TEAMS_WEBHOOK_URL }}
+          curl -X POST -H "Content-Type: application/json" \
+          -d '{
+            "attachments": [
+              {
+                "contentType": "application/vnd.microsoft.card.adaptive",
+                "content": {
+                  "$schema": "http://adaptivecards.io/schemas/adaptive-card.json",
+                  "type": "AdaptiveCard",
+                  "version": "1.4",
+                  "body": [
+                    {
+                      "type": "TextBlock",
+                      "size": "Large",
+                      "weight": "Bolder",
+                      "text": "Mabl Test Results"
+                    },
+                    {
+                      "type": "TextBlock",
+                      "text": "Plan: Smoke Tests"
+                    },
+                    {
+                      "type": "TextBlock",
+                      "text": "Status: SUCCESS ✅"
+                    }
+                  ]
+                }
+              }
+            ]
+          }' \
+          "${{ secrets.POWER_AUTOMATE_URL }}"
+
 
 
