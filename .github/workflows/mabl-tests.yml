@@ -36,7 +36,7 @@ jobs:
         id: test_runs
         run: |
           echo "Fetching actual test results from Mabl API..."
-          curl -s -H "Authorization: Bearer ${{ secrets.MABL_BEARER_TOKEN }}" \
+          curl -s -H "Authorization: Bearer ${{ secrets.BEARER_TOKEN }}" \
                "https://api.mabl.com/results/deployment/${{ steps.run_mabl.outputs.deployment_id }}/testRuns" \
                -o test_runs.json
 
