@@ -15,7 +15,7 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v3
 
-      - name: Install mabl CLI
+      - name: Install Mabl CLI
         uses: mablhq/setup-mabl-cli@v1
 
       - name: Run Mabl deployment and capture JSON
@@ -29,26 +29,23 @@ jobs:
             --await-completion \
             --output json > deployment.json
 
-          # Save deployment ID
-          deployment_id=$(jq -r '.id' deployment.json)
-          echo "deployment_id=$deployment_id" >> $GITHUB_OUTPUT
+          # Extract application and environment names
+          app_name=$(jq -r '.application.name // "N/A"' deployment.json)
+          env_name=$(jq -r '.environment.name // "N/A"' deployment.json)
 
-      - name: Extract test run details
-        id: parse_results
-        run: |
-          # Read deployment JSON
-          deployment_json=$(cat deployment.json)
+          # Extract plan names and total plans
+          plan_names=$(jq -r '[.plans[]?.name] | join(", ")' deployment.json)
+          total_plans=$(jq '.plans | length // 0' deployment.json)
 
-          # Safely extract total tests
-          total_tests=$(echo "$deployment_json" | jq '.plans[]?.test_runs[]? | length // 0' | wc -l)
-          # Sum durations (if available)
-          duration=$(echo "$deployment_json" | jq '[.plans[]?.test_runs[]?.duration_seconds] | add // 0')
-          # Extract video URLs (if available)
-          videos=$(echo "$deployment_json" | jq -r '[.plans[]?.test_runs[]?.artifacts[]? | select(.type=="video") | .url] | join(", ")')
+          # Extract test case names (if available in CLI output)
+          test_case_names=$(jq -r '[.plans[]?.test_runs[]?.name] | join(", ")' deployment.json)
 
-          echo "total_tests=$total_tests" >> $GITHUB_OUTPUT
-          echo "duration=$duration" >> $GITHUB_OUTPUT
-          echo "videos=$videos" >> $GITHUB_OUTPUT
+          # Set outputs for GitHub Actions
+          echo "app_name=$app_name" >> $GITHUB_OUTPUT
+          echo "env_name=$env_name" >> $GITHUB_OUTPUT
+          echo "plan_names=$plan_names" >> $GITHUB_OUTPUT
+          echo "total_plans=$total_plans" >> $GITHUB_OUTPUT
+          echo "test_case_names=$test_case_names" >> $GITHUB_OUTPUT
 
       - name: Notify Teams with Mabl results
         run: |
@@ -69,15 +66,13 @@ jobs:
                       "text": "Mabl Test Results"
                     },
                     {
-                      "type": "TextBlock",
-                      "text": "Plan: Sanity Tests"
-                    },
-                    {
                       "type": "FactSet",
                       "facts": [
-                        { "title": "Total Tests", "value": "${{ steps.parse_results.outputs.total_tests }}" },
-                        { "title": "Total Duration (s)", "value": "${{ steps.parse_results.outputs.duration }}" },
-                        { "title": "Video URLs", "value": "${{ steps.parse_results.outputs.videos }}" }
+                        { "title": "Application", "value": "${{ steps.run_mabl.outputs.app_name }}" },
+                        { "title": "Environment", "value": "${{ steps.run_mabl.outputs.env_name }}" },
+                        { "title": "Total Plans", "value": "${{ steps.run_mabl.outputs.total_plans }}" },
+                        { "title": "Plan Names", "value": "${{ steps.run_mabl.outputs.plan_names }}" },
+                        { "title": "Test Case Names", "value": "${{ steps.run_mabl.outputs.test_case_names }}" }
                       ]
                     }
                   ]
