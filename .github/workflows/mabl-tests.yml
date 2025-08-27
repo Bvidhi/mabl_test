@@ -21,8 +21,14 @@ jobs:
 
       - name: Run mabl tests for all environments
         run: |
-             mabl deployments create \
-               --api-key "${{ secrets.API_KEY }}" \
-               --application-id "hHYhdkkw2dGZnKkJFkqmyA-a" \
-               --environment-id "MiViau2EA9KY6OwcjFwS6A-e" \
-               --await-completion
+             # mabl deployments create \
+             #   --api-key "${{ secrets.API_KEY }}" \
+             #   --application-id "hHYhdkkw2dGZnKkJFkqmyA-a" \
+             #   --environment-id "MiViau2EA9KY6OwcjFwS6A-e" \
+             #   --await-completion
+
+               mabl plans run \
+                --api-key "${{ secrets.API_KEY }}" \
+                --plan-id "ajEy3DeMffo0wMDznYYarw-p" \
+                --environment-id "MiViau2EA9KY6OwcjFwS6A-e" \
+                --await-completion
