@@ -27,11 +27,13 @@ jobs:
                --environment-id "JOHGzivFdBgSLdoq2kCagA-e" \
                --await-completion
 
-      - name: Send results to Teams
+      - name: Notify Teams via Power Automate
         run: |
           curl -H "Content-Type: application/json" \
-               -d "{\"text\":\"Mabl tests completed ✅\"}" \
-               ${{ secrets.TEAMS_WEBHOOK_URL }}
-
+               -d '{
+                 "jobName": "Mabl Test Run",
+                 "buildStatus": "SUCCESS"
+               }' \
+           ${{ secrets.TEAMS_WEBHOOK_URL }}
 
 
