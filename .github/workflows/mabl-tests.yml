@@ -1,11 +1,10 @@
-
 name: Run all mabl tests
 
 on:
   push:
-    branches: [ "main", "yaml"]
+    branches: ["main"]
   pull_request:
-    branches: [ "main", "yaml" ]
+    branches: ["main"]
   workflow_dispatch:
 
 jobs:
@@ -16,16 +15,46 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v3
 
-      - name: Install mabl CLI
+      - name: Install Mabl CLI
         uses: mablhq/setup-mabl-cli@v1
 
-      - name: Run mabl tests for all environments
+      - name: Run Mabl deployment
+        id: run_mabl
         run: |
-             mabl deployments create \
-               --api-key "${{ secrets.API_KEY }}" \
-               --application-id "Oonui6hTcPcWFf7v4y4exA-a" \
-               --environment-id "JOHGzivFdBgSLdoq2kCagA-e" \
-               --await-completion
+          echo "Triggering deployment..."
+          mabl deployments create \
+            --api-key "${{ secrets.API_KEY }}" \
+            --application-id "Oonui6hTcPcWFf7v4y4exA-a" \
+            --environment-id "JOHGzivFdBgSLdoq2kCagA-e" \
+            --await-completion \
+            --output json > deployment.json
+
+          deployment_id=$(jq -r '.id' deployment.json)
+          echo "deployment_id=$deployment_id" >> $GITHUB_OUTPUT
+
+      - name: Fetch test run results
+        id: test_runs
+        run: |
+          echo "Fetching actual test results from Mabl API..."
+          curl -s -H "Authorization: Bearer ${{ secrets.MABL_BEARER_TOKEN }}" \
+            "https://api.mabl.com/results/deployment/${{ steps.run_mabl.outputs.deployment_id }}/testRuns" \
+            -o test_runs.json
+
+          # Total tests
+          total_tests=$(jq '.test_runs | length' test_runs.json)
+          # Test case names
+          test_case_names=$(jq -r '[.test_runs[].name] | join(", ")' test_runs.json)
+          # Overall status
+          failed_count=$(jq '[.test_runs[].status] | map(select(.!="PASSED")) | length' test_runs.json)
+          status="PASS ✅"
+          if [ "$failed_count" -gt 0 ]; then status="FAIL ❌"; fi
+          # Total duration
+          duration=$(jq '[.test_runs[].duration_seconds] | add // 0' test_runs.json)
+
+          echo "total_tests=$total_tests" >> $GITHUB_OUTPUT
+          echo "test_case_names=$test_case_names" >> $GITHUB_OUTPUT
+          echo "status=$status" >> $GITHUB_OUTPUT
+          echo "duration=$duration" >> $GITHUB_OUTPUT
 
       - name: Notify Teams with Mabl results
         run: |
@@ -51,7 +80,15 @@ jobs:
                     },
                     {
                       "type": "TextBlock",
-                      "text": "Status: PASS✅"
+                      "text": "Status: ${{ steps.test_runs.outputs.status }}"
+                    },
+                    {
+                      "type": "FactSet",
+                      "facts": [
+                        { "title": "Total Test Runs", "value": "${{ steps.test_runs.outputs.total_tests }}" },
+                        { "title": "Total Duration (s)", "value": "${{ steps.test_runs.outputs.duration }}" },
+                        { "title": "Test Case Names", "value": "${{ steps.test_runs.outputs.test_case_names }}" }
+                      ]
                     }
                   ]
                 }
