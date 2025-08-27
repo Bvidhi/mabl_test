@@ -2,7 +2,7 @@ name: Run all Mabl tests
 
 on:
   push:
-    branches: ["*"]       # Trigger on any branch
+    branches: ["*"]
   pull_request:
     branches: ["*"]
   workflow_dispatch:
@@ -18,10 +18,8 @@ jobs:
       - name: Install Mabl CLI
         uses: mablhq/setup-mabl-cli@v1
 
-      - name: Trigger Mabl deployment
-        id: trigger
+      - name: Run mabl tests
         run: |
-          echo "Triggering Mabl deployment for branch $GITHUB_REF_NAME..."
           mabl deployments create \
             --api-key "${{ secrets.API_KEY }}" \
             --application-id "Oonui6hTcPcWFf7v4y4exA-a" \
@@ -39,7 +37,6 @@ jobs:
           echo "deployment_id=$deployment_id" >> $GITHUB_OUTPUT
 
       - name: Fetch Mabl test results
-        id: results
         run: |
           echo "Fetching actual test results from Mabl API..."
           RESPONSE=$(curl -s -H "Authorization: Bearer ${{ secrets.BEARER_TOKEN }}" \
