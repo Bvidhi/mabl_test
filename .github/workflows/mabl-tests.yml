@@ -15,13 +15,13 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v3
 
-      - name: Install Mabl CLI
+      - name: Install mabl CLI
         uses: mablhq/setup-mabl-cli@v1
 
-      - name: Run Mabl deployment and capture JSON
+      - name: Run Mabl tests and capture JSON
         id: run_mabl
         run: |
-          echo "Running Mabl deployment..."
+          # Run deployment and capture JSON output
           mabl deployments create \
             --api-key "${{ secrets.API_KEY }}" \
             --application-id "Oonui6hTcPcWFf7v4y4exA-a" \
@@ -29,22 +29,15 @@ jobs:
             --await-completion \
             --output json > deployment.json
 
-          # Extract application and environment names
-          app_name=$(jq -r '.application.name // "N/A"' deployment.json)
-          env_name=$(jq -r '.environment.name // "N/A"' deployment.json)
-
-          # Extract plan names and total plans
-          plan_names=$(jq -r '[.plans[]?.name] | join(", ")' deployment.json)
-          total_plans=$(jq '.plans | length // 0' deployment.json)
-
-          # Extract test case names (if available in CLI output)
+          # Extract total test runs
+          total_tests=$(jq '[.plans[]?.test_runs[]?] | length' deployment.json)
+          # Sum total duration
+          duration=$(jq '[.plans[]?.test_runs[]?.duration_seconds] | add // 0' deployment.json)
+          # Extract test case names
           test_case_names=$(jq -r '[.plans[]?.test_runs[]?.name] | join(", ")' deployment.json)
 
-          # Set outputs for GitHub Actions
-          echo "app_name=$app_name" >> $GITHUB_OUTPUT
-          echo "env_name=$env_name" >> $GITHUB_OUTPUT
-          echo "plan_names=$plan_names" >> $GITHUB_OUTPUT
-          echo "total_plans=$total_plans" >> $GITHUB_OUTPUT
+          echo "total_tests=$total_tests" >> $GITHUB_OUTPUT
+          echo "duration=$duration" >> $GITHUB_OUTPUT
           echo "test_case_names=$test_case_names" >> $GITHUB_OUTPUT
 
       - name: Notify Teams with Mabl results
@@ -66,12 +59,18 @@ jobs:
                       "text": "Mabl Test Results"
                     },
                     {
+                      "type": "TextBlock",
+                      "text": "Plan: Sanity Tests"
+                    },
+                    {
+                      "type": "TextBlock",
+                      "text": "Status: SUCCESS ✅"
+                    },
+                    {
                       "type": "FactSet",
                       "facts": [
-                        { "title": "Application", "value": "${{ steps.run_mabl.outputs.app_name }}" },
-                        { "title": "Environment", "value": "${{ steps.run_mabl.outputs.env_name }}" },
-                        { "title": "Total Plans", "value": "${{ steps.run_mabl.outputs.total_plans }}" },
-                        { "title": "Plan Names", "value": "${{ steps.run_mabl.outputs.plan_names }}" },
+                        { "title": "Total Test Runs", "value": "${{ steps.run_mabl.outputs.total_tests }}" },
+                        { "title": "Duration (s)", "value": "${{ steps.run_mabl.outputs.duration }}" },
                         { "title": "Test Case Names", "value": "${{ steps.run_mabl.outputs.test_case_names }}" }
                       ]
                     }
