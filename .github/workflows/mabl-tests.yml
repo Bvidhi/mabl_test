@@ -26,8 +26,6 @@ jobs:
             --api-key "${{ secrets.API_KEY }}" \
             --application-id "Oonui6hTcPcWFf7v4y4exA-a" \
             --environment-id "JOHGzivFdBgSLdoq2kCagA-e" \
-            --mabl-branch "${GITHUB_REF_NAME}" \
-            --auto-branch true \
             --await-completion \
             --output json > deployment.json
 
