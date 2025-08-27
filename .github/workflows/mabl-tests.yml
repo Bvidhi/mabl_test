@@ -2,9 +2,9 @@ name: Run all mabl tests
 
 on:
   push:
-    branches: [ "main" ]
+    branches: ["main"]
   pull_request:
-    branches: [ "main" ]
+    branches: ["main"]
   workflow_dispatch:
 
 jobs:
@@ -18,10 +18,9 @@ jobs:
       - name: Install mabl CLI
         uses: mablhq/setup-mabl-cli@v1
 
-      - name: Run mabl tests for all environments
+      - name: Run Mabl deployment and capture deployment ID
         id: run_mabl
         run: |
-          # Run deployment and capture JSON output
           deployment_json=$(mabl deployments create \
             --api-key "${{ secrets.API_KEY }}" \
             --application-id "Oonui6hTcPcWFf7v4y4exA-a" \
@@ -29,13 +28,19 @@ jobs:
             --await-completion \
             --output json)
 
-          echo "$deployment_json" > deployment.json
+          deployment_id=$(echo "$deployment_json" | jq -r '.id')
+          echo "deployment_id=$deployment_id" >> $GITHUB_OUTPUT
+          echo "Deployment ID: $deployment_id"
 
-          # Extract total tests, passed/failed count
-          total_tests=$(echo "$deployment_json" | jq '.tests | length')
-          duration=$(echo "$deployment_json" | jq '.duration_seconds')
-          # Extract video URLs if available
-          videos=$(echo "$deployment_json" | jq -r '[.tests[].artifacts[]? | select(.type=="video") | .url] | join(", ")')
+      - name: Fetch Mabl test run results
+        id: fetch_results
+        run: |
+          test_runs_json=$(curl -s -H "Authorization: Bearer ${{ secrets.API_KEY }}" \
+            "https://api.mabl.com/results/deployment/${{ steps.run_mabl.outputs.deployment_id }}/testRuns")
+
+          total_tests=$(echo "$test_runs_json" | jq '.test_runs | length')
+          duration=$(echo "$test_runs_json" | jq '[.test_runs[].duration_seconds] | add')
+          videos=$(echo "$test_runs_json" | jq -r '[.test_runs[].artifacts[]? | select(.type=="video") | .url] | join(", ")')
 
           echo "total_tests=$total_tests" >> $GITHUB_OUTPUT
           echo "duration=$duration" >> $GITHUB_OUTPUT
@@ -64,15 +69,11 @@ jobs:
                       "text": "Plan: Sanity Tests"
                     },
                     {
-                      "type": "TextBlock",
-                      "text": "Status: PASS ✅"
-                    },
-                    {
                       "type": "FactSet",
                       "facts": [
-                        { "title": "Total Tests", "value": "${{ steps.run_mabl.outputs.total_tests }}" },
-                        { "title": "Total Duration (s)", "value": "${{ steps.run_mabl.outputs.duration }}" },
-                        { "title": "Video URLs", "value": "${{ steps.run_mabl.outputs.videos }}" }
+                        { "title": "Total Tests", "value": "${{ steps.fetch_results.outputs.total_tests }}" },
+                        { "title": "Total Duration (s)", "value": "${{ steps.fetch_results.outputs.duration }}" },
+                        { "title": "Video URLs", "value": "${{ steps.fetch_results.outputs.videos }}" }
                       ]
                     }
                   ]
