@@ -18,8 +18,10 @@ jobs:
       - name: Install Mabl CLI
         uses: mablhq/setup-mabl-cli@v1
 
-      - name: Run mabl tests
+      - name: Trigger Mabl deployment
+        id: trigger
         run: |
+          echo "Triggering Mabl deployment for branch $GITHUB_REF_NAME..."
           mabl deployments create \
             --api-key "${{ secrets.API_KEY }}" \
             --application-id "Oonui6hTcPcWFf7v4y4exA-a" \
@@ -37,6 +39,7 @@ jobs:
           echo "deployment_id=$deployment_id" >> $GITHUB_OUTPUT
 
       - name: Fetch Mabl test results
+        id: results
         run: |
           echo "Fetching actual test results from Mabl API..."
           RESPONSE=$(curl -s -H "Authorization: Bearer ${{ secrets.BEARER_TOKEN }}" \
@@ -85,11 +88,11 @@ jobs:
                   "version": "1.4",
                   "body": [
                     { "type": "TextBlock", "size": "Large", "weight": "Bolder", "text": "Mabl Test Results" },
-                    { "type": "TextBlock", "text": "Plan: Sanity Tests" },
-                    { "type": "TextBlock", "text": "Status: ${{ steps.results.outputs.status }}" },
-                    { "type": "TextBlock", "text": "Total Tests: ${{ steps.results.outputs.total_tests }}" },
-                    { "type": "TextBlock", "text": "Duration (s): ${{ steps.results.outputs.duration }}" },
-                    { "type": "TextBlock", "text": "Test Case Names: ${{ steps.results.outputs.test_case_names }}" }
+                    { "type": "TextBlock", "weight": "Bolder", "text": "Plan: Sanity Tests" },
+                    { "type": "TextBlock", "weight": "Bolder", "text": "Status: ${{ steps.results.outputs.status }}" },
+                    { "type": "TextBlock", "weight": "Bolder", "text": "Total Tests: ${{ steps.results.outputs.total_tests }}" },
+                    { "type": "TextBlock", "weight": "Bolder", "text": "Duration (s): ${{ steps.results.outputs.duration }}" },
+                    { "type": "TextBlock", "weight": "Bolder", "text": "Test Case Names: ${{ steps.results.outputs.test_case_names }}" }
                   ]
                 }
               }
