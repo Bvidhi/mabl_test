@@ -29,7 +29,8 @@ jobs:
 
       - name: Send Mabl results to Teams
         run: |
-          STATUS="Success" # Or dynamically set based on test result
+          STATUS="Success"
           curl -H 'Content-Type: application/json' \
-               -d '{"text":"Mabl tests completed with status: '$STATUS'. View results: <https://app.mabl.com/workspaces/...>"}' \
+               -d "{\"text\":\"Mabl tests completed with status: $STATUS. View results: https://app.mabl.com/workspaces/...\"}" \
                ${{ secrets.TEAMS_WEBHOOK_URL }}
+
