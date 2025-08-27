@@ -27,12 +27,36 @@ jobs:
                --environment-id "JOHGzivFdBgSLdoq2kCagA-e" \
                --await-completion
 
-      - name: Notify Teams via Power Automate
+      - name: Notify Teams with Mabl results
         run: |
           curl -H "Content-Type: application/json" \
                -d '{
-                 "jobName": "Mabl Test Run",
-                 "buildStatus": "SUCCESS"
+                 "attachments": [
+                   {
+                     "contentType": "application/vnd.microsoft.card.adaptive",
+                     "content": {
+                       "$schema": "http://adaptivecards.io/schemas/adaptive-card.json",
+                       "type": "AdaptiveCard",
+                       "version": "1.4",
+                       "body": [
+                         {
+                           "type": "TextBlock",
+                           "size": "Large",
+                           "weight": "Bolder",
+                           "text": "Mabl Test Results"
+                         },
+                         {
+                           "type": "TextBlock",
+                           "text": "Plan: Smoke Tests"
+                         },
+                         {
+                           "type": "TextBlock",
+                           "text": "Status: SUCCESS ✅"
+                         }
+                       ]
+                     }
+                   }
+                 ]
                }' \
            ${{ secrets.TEAMS_WEBHOOK_URL }}
 
