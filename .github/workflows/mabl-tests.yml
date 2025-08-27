@@ -23,6 +23,6 @@ jobs:
         run: |
              mabl deployments create \
                --api-key "${{ secrets.API_KEY }}" \
-               --application-id "hHYhdkkw2dGZnKkJFkqmyA-a" \
-               --environment-id "YSLhJZlsun6k6oWsIVKoRA-e" \
+               --application-id "Oonui6hTcPcWFf7v4y4exA-a" \
+               --environment-id "JOHGzivFdBgSLdoq2kCagA-e" \
                --await-completion
