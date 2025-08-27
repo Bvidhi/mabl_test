@@ -1,10 +1,10 @@
-name: Run all mabl tests
+name: Run all Mabl tests
 
 on:
   push:
-    branches: ["main"]
+    branches: ["*"]       # Trigger on any branch
   pull_request:
-    branches: ["main"]
+    branches: ["*"]
   workflow_dispatch:
 
 jobs:
@@ -18,44 +18,64 @@ jobs:
       - name: Install Mabl CLI
         uses: mablhq/setup-mabl-cli@v1
 
-      - name: Run Mabl deployment and capture JSON
-        id: run_mabl
+      - name: Trigger Mabl deployment
+        id: trigger
         run: |
-          echo "Running Mabl deployment..."
+          echo "Triggering Mabl deployment for branch $GITHUB_REF_NAME..."
           mabl deployments create \
             --api-key "${{ secrets.API_KEY }}" \
             --application-id "Oonui6hTcPcWFf7v4y4exA-a" \
             --environment-id "JOHGzivFdBgSLdoq2kCagA-e" \
-            --labels "sanity" \
+            --mabl-branch "${GITHUB_REF_NAME}" \
+            --auto-branch true \
             --await-completion \
             --output json > deployment.json
 
-          echo "===== Deployment JSON ====="
-          cat deployment.json
+          deployment_id=$(jq -r '.id // empty' deployment.json)
+          if [ -z "$deployment_id" ]; then
+            echo "deployment_id not found, exiting."
+            exit 1
+          fi
+          echo "deployment_id=$deployment_id" >> $GITHUB_OUTPUT
 
-          # Extract application and environment names
-          app_name=$(jq -r '.application.name // "N/A"' deployment.json)
-          env_name=$(jq -r '.environment.name // "N/A"' deployment.json)
+      - name: Fetch Mabl test results
+        id: results
+        run: |
+          echo "Fetching actual test results from Mabl API..."
+          RESPONSE=$(curl -s -H "Authorization: Bearer ${{ secrets.BEARER_TOKEN }}" \
+            "https://api.mabl.com/results/deployment/${{ steps.trigger.outputs.deployment_id }}/testRuns")
 
-          # Extract plan names and total plans
-          plan_names=$(jq -r '[.plans[]?.name] | join(", ")' deployment.json)
-          total_plans=$(jq '.plans | length // 0' deployment.json)
+          # Handle empty or null response
+          if [ -z "$RESPONSE" ] || [ "$RESPONSE" = "null" ]; then
+            echo "No test runs found."
+            echo "total_tests=0" >> $GITHUB_OUTPUT
+            echo "test_case_names=none" >> $GITHUB_OUTPUT
+            echo "status=NO TEST RUNS ❌" >> $GITHUB_OUTPUT
+            echo "duration=0" >> $GITHUB_OUTPUT
+            exit 0
+          fi
 
-          # Extract test runs if present
-          total_tests=$(jq '[.plans[]?.test_runs[]?] | length' deployment.json)
-          duration=$(jq '[.plans[]?.test_runs[]?.duration_seconds] | add // 0' deployment.json)
-          test_case_names=$(jq -r '[.plans[]?.test_runs[]?.name] | join(", ")' deployment.json)
+          # Extract total tests, duration, test case names, failed count
+          total_tests=$(echo "$RESPONSE" | jq '[.test_runs[]?] | length')
+          duration=$(echo "$RESPONSE" | jq '[.test_runs[]?.duration_seconds] | add // 0')
+          test_case_names=$(echo "$RESPONSE" | jq -r '[.test_runs[]?.name] | join(", ")')
+          failed_count=$(echo "$RESPONSE" | jq '[.test_runs[]?.status] | map(select(.!="PASSED")) | length')
 
-          # Output to GitHub Actions
-          echo "app_name=$app_name" >> $GITHUB_OUTPUT
-          echo "env_name=$env_name" >> $GITHUB_OUTPUT
-          echo "plan_names=$plan_names" >> $GITHUB_OUTPUT
-          echo "total_plans=$total_plans" >> $GITHUB_OUTPUT
+          # Compute status
+          if [ "$failed_count" -eq 0 ] && [ "$total_tests" -gt 0 ]; then
+              status="PASS ✅"
+          elif [ "$total_tests" -eq 0 ]; then
+              status="NO TESTS ❌"
+          else
+              status="FAIL ❌"
+          fi
+
           echo "total_tests=$total_tests" >> $GITHUB_OUTPUT
-          echo "duration=$duration" >> $GITHUB_OUTPUT
           echo "test_case_names=$test_case_names" >> $GITHUB_OUTPUT
+          echo "status=$status" >> $GITHUB_OUTPUT
+          echo "duration=$duration" >> $GITHUB_OUTPUT
 
-      - name: Notify Teams with Mabl results
+      - name: Send Teams Adaptive Card
         run: |
           curl -X POST -H "Content-Type: application/json" \
           -d '{
@@ -67,27 +87,14 @@ jobs:
                   "type": "AdaptiveCard",
                   "version": "1.4",
                   "body": [
-                    {
-                      "type": "TextBlock",
-                      "size": "Large",
-                      "weight": "Bolder",
-                      "text": "Mabl Test Results"
-                    },
-                    {
-                      "type": "FactSet",
-                      "facts": [
-                        { "title": "Application", "value": "${{ steps.run_mabl.outputs.app_name }}" },
-                        { "title": "Environment", "value": "${{ steps.run_mabl.outputs.env_name }}" },
-                        { "title": "Total Plans", "value": "${{ steps.run_mabl.outputs.total_plans }}" },
-                        { "title": "Plan Names", "value": "${{ steps.run_mabl.outputs.plan_names }}" },
-                        { "title": "Total Test Runs", "value": "${{ steps.run_mabl.outputs.total_tests }}" },
-                        { "title": "Duration (s)", "value": "${{ steps.run_mabl.outputs.duration }}" },
-                        { "title": "Test Case Names", "value": "${{ steps.run_mabl.outputs.test_case_names }}" }
-                      ]
-                    }
+                    { "type": "TextBlock", "size": "Large", "weight": "Bolder", "text": "Mabl Test Results" },
+                    { "type": "TextBlock", "text": "Plan: Sanity Tests" },
+                    { "type": "TextBlock", "text": "Status: ${{ steps.results.outputs.status }}" },
+                    { "type": "TextBlock", "text": "Total Tests: ${{ steps.results.outputs.total_tests }}" },
+                    { "type": "TextBlock", "text": "Duration (s): ${{ steps.results.outputs.duration }}" },
+                    { "type": "TextBlock", "text": "Test Case Names: ${{ steps.results.outputs.test_case_names }}" }
                   ]
                 }
               }
             ]
-          }' \
-          "${{ secrets.POWER_AUTOMATE_URL }}"
+          }' "${{ secrets.POWER_AUTOMATE_URL }}"
