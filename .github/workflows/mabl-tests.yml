@@ -26,7 +26,8 @@ jobs:
             --api-key "${{ secrets.API_KEY }}" \
             --application-id "Oonui6hTcPcWFf7v4y4exA-a" \
             --environment-id "JOHGzivFdBgSLdoq2kCagA-e" \
-            --await-completion --json)
+            --await-completion \
+            --output json)
 
           echo "$deployment_json" > deployment.json
 
