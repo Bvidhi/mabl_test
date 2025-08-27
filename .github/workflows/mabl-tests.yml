@@ -21,6 +21,7 @@ jobs:
       - name: Run Mabl deployment and capture deployment ID
         id: run_mabl
         run: |
+          # Run deployment and output JSON
           deployment_json=$(mabl deployments create \
             --api-key "${{ secrets.API_KEY }}" \
             --application-id "Oonui6hTcPcWFf7v4y4exA-a" \
@@ -35,6 +36,7 @@ jobs:
       - name: Fetch Mabl test run results
         id: fetch_results
         run: |
+          # Fetch test runs using Mabl REST API
           test_runs_json=$(curl -s -H "Authorization: Bearer ${{ secrets.API_KEY }}" \
             "https://api.mabl.com/results/deployment/${{ steps.run_mabl.outputs.deployment_id }}/testRuns")
 
