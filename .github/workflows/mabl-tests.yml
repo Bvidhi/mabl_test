@@ -26,3 +26,10 @@ jobs:
                --application-id "Oonui6hTcPcWFf7v4y4exA-a" \
                --environment-id "JOHGzivFdBgSLdoq2kCagA-e" \
                --await-completion
+
+      - name: Send Mabl results to Teams
+        run: |
+          STATUS="Success" # Or dynamically set based on test result
+          curl -H 'Content-Type: application/json' \
+               -d '{"text":"Mabl tests completed with status: '$STATUS'. View results: <https://app.mabl.com/workspaces/...>"}' \
+               ${{ secrets.TEAMS_WEBHOOK_URL }}
