@@ -19,9 +19,7 @@ jobs:
         uses: mablhq/setup-mabl-cli@v1
 
       - name: Trigger Mabl deployment
-        id: run_mabl
         run: |
-          echo "Triggering deployment for branch $GITHUB_REF_NAME ..."
           mabl deployments create \
             --api-key "${{ secrets.API_KEY }}" \
             --application-id "Oonui6hTcPcWFf7v4y4exA-a" \
@@ -33,7 +31,6 @@ jobs:
           echo "deployment_id=$deployment_id" >> $GITHUB_OUTPUT
 
       - name: Fetch actual test results from Mabl API
-        id: test_runs
         run: |
           echo "Fetching actual test results from Mabl API..."
           curl -s -H "Authorization: Bearer ${{ secrets.BEARER_TOKEN }}" \
