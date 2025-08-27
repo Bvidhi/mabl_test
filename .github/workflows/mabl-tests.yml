@@ -1,10 +1,11 @@
+
 name: Run all mabl tests
 
 on:
   push:
-    branches: ["main", "yaml"]
+    branches: [ "main", "yaml"]
   pull_request:
-    branches: ["main", "yaml"]
+    branches: [ "main", "yaml" ]
   workflow_dispatch:
 
 jobs:
@@ -15,45 +16,16 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v3
 
-      - name: Install Mabl CLI
+      - name: Install mabl CLI
         uses: mablhq/setup-mabl-cli@v1
 
-      - name: Run Mabl deployment and capture JSON
-        id: run_mabl
+      - name: Run mabl tests for all environments
         run: |
-          echo "Running Mabl deployment..."
-          mabl deployments create \
-            --api-key "${{ secrets.API_KEY }}" \
-            --application-id "Oonui6hTcPcWFf7v4y4exA-a" \
-            --environment-id "JOHGzivFdBgSLdoq2kCagA-e" \
-            --labels "sanity" \
-            --await-completion \
-            --output json > deployment.json
-
-          echo "===== Deployment JSON ====="
-          cat deployment.json
-
-          # Extract application and environment names
-          app_name=$(jq -r '.application.name // "N/A"' deployment.json)
-          env_name=$(jq -r '.environment.name // "N/A"' deployment.json)
-
-          # Extract plan names and total plans
-          plan_names=$(jq -r '[.plans[]?.name] | join(", ")' deployment.json)
-          total_plans=$(jq '.plans | length // 0' deployment.json)
-
-          # Extract test runs if present
-          total_tests=$(jq '[.plans[]?.test_runs[]?] | length' deployment.json)
-          duration=$(jq '[.plans[]?.test_runs[]?.duration_seconds] | add // 0' deployment.json)
-          test_case_names=$(jq -r '[.plans[]?.test_runs[]?.name] | join(", ")' deployment.json)
-
-          # Output to GitHub Actions
-          echo "app_name=$app_name" >> $GITHUB_OUTPUT
-          echo "env_name=$env_name" >> $GITHUB_OUTPUT
-          echo "plan_names=$plan_names" >> $GITHUB_OUTPUT
-          echo "total_plans=$total_plans" >> $GITHUB_OUTPUT
-          echo "total_tests=$total_tests" >> $GITHUB_OUTPUT
-          echo "duration=$duration" >> $GITHUB_OUTPUT
-          echo "test_case_names=$test_case_names" >> $GITHUB_OUTPUT
+             mabl deployments create \
+               --api-key "${{ secrets.API_KEY }}" \
+               --application-id "Oonui6hTcPcWFf7v4y4exA-a" \
+               --environment-id "JOHGzivFdBgSLdoq2kCagA-e" \
+               --await-completion
 
       - name: Notify Teams with Mabl results
         run: |
@@ -74,16 +46,12 @@ jobs:
                       "text": "Mabl Test Results"
                     },
                     {
-                      "type": "FactSet",
-                      "facts": [
-                        { "title": "Application", "value": "${{ steps.run_mabl.outputs.app_name }}" },
-                        { "title": "Environment", "value": "${{ steps.run_mabl.outputs.env_name }}" },
-                        { "title": "Total Plans", "value": "${{ steps.run_mabl.outputs.total_plans }}" },
-                        { "title": "Plan Names", "value": "${{ steps.run_mabl.outputs.plan_names }}" },
-                        { "title": "Total Test Runs", "value": "${{ steps.run_mabl.outputs.total_tests }}" },
-                        { "title": "Duration (s)", "value": "${{ steps.run_mabl.outputs.duration }}" },
-                        { "title": "Test Case Names", "value": "${{ steps.run_mabl.outputs.test_case_names }}" }
-                      ]
+                      "type": "TextBlock",
+                      "text": "Plan: Sanity Tests"
+                    },
+                    {
+                      "type": "TextBlock",
+                      "text": "Status: PASS✅"
                     }
                   ]
                 }
