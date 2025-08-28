@@ -106,10 +106,9 @@ jobs:
           test_case_names=$(jq -r '
             [.executions[]?.journey_executions[]?.journey_id // empty] 
             | to_entries 
-            | map("\(.key+1). \(.value)") 
+            | map("\(.key+1) - \(.value | gsub(":";"-"))") 
             | join("\n")
           ' results.json || echo "N/A")
-
 
           # Overall status
           if [ "$total_tests" -gt 0 ] && [ "$failed_tests" -eq 0 ]; then
