@@ -2,12 +2,10 @@ name: Run all Mabl tests
 
 on:
   push:
-    branches: ["*"]
+    branches: ["**"]
   pull_request:
-    branches: ["*"]
+    branches: ["**"]
   workflow_dispatch:
-  schedule:
-    - cron: '45 9 * * *' # Runs at 3:15 PM IST (09:45 UTC)
 
 jobs:
   mabl-tests:
@@ -35,9 +33,7 @@ jobs:
             --await-completion \
             --output json > event.json
 
-          echo "Event JSON:"
           cat event.json
-
           event_id=$(jq -r '.id // empty' event.json)
           if [ -z "$event_id" ] || [ "$event_id" = "null" ]; then
             echo "No event id in response. Exiting."
@@ -52,64 +48,41 @@ jobs:
           EVENT_ID: ${{ steps.trigger.outputs.event_id }}
         run: |
           set -euo pipefail
-          echo "Fetching results for deployment event: ${EVENT_ID}"
-
           BASE_URL="https://api.mabl.com/execution/result/event/${EVENT_ID}"
 
           for attempt in $(seq 1 30); do
             http_code=$(curl -sS -u "key:${API_KEY}" -o results.json -w "%{http_code}" "$BASE_URL" || true)
             echo "HTTP $http_code (attempt $attempt)"
-
-            if [[ "$http_code" == "404" || "$http_code" == "202" || "$http_code" == "204" ]]; then
-              echo "No valid results yet, waiting..."
+            if [[ "$http_code" =~ ^(404|202|204)$ ]]; then
               sleep 10
               continue
             fi
-
-            if [[ "$http_code" != "200" ]]; then
-              echo "Unexpected HTTP code: $http_code"
+            if [ "$http_code" != "200" ]; then
               cat results.json || true
               sleep 10
               continue
             fi
-
             has_metrics=$(jq -r 'has("journey_execution_metrics")' results.json)
-            if [[ "$has_metrics" != "true" ]]; then
-              echo "Results present but metrics not ready, waiting..."
+            if [ "$has_metrics" != "true" ]; then
               sleep 10
               continue
             fi
-
             break
           done
 
-          echo "Raw results:"
-          cat results.json
-
-          # Metrics
           total_tests=$(jq -r '.journey_execution_metrics.total // 0' results.json)
           failed_tests=$(jq -r '.journey_execution_metrics.failed // 0' results.json)
           passed_tests=$(jq -r '.journey_execution_metrics.passed // 0' results.json)
           duration=$(jq '[.executions[]? | select(.start_time and .stop_time) | (.stop_time - .start_time)] | add // 0 | floor / 1000' results.json)
           plan_names=$(jq -r '[.executions[]?.plan?.name] | unique | join(", ") // "N/A"' results.json)
 
-          # Test case names safely, multiline
-          test_case_names=$(jq -r '
-            [.executions[]?.journey_executions[]?.name // empty]
-            | to_entries
-            | map("\(.key+1). \(.value)")
-            | join("\n")
-          ' results.json || echo "")
+          # Extract test names correctly from journey_executions
+          test_case_names=$(jq -r '[.executions[]?.journey_executions[]?.journey_name] | unique | join("\n") // "N/A"' results.json)
+          test_case_names_safe="${test_case_names//$'\n'/'%0A'}"
 
-          # Write multiline output to GitHub Actions
-          echo "test_case_names<<EOF" >> "$GITHUB_OUTPUT"
-          echo "$test_case_names" >> "$GITHUB_OUTPUT"
-          echo "EOF" >> "$GITHUB_OUTPUT"
-
-          # Overall status
-          if [[ "$total_tests" -gt 0 && "$failed_tests" -eq 0 ]]; then
+          if [ "$total_tests" -gt 0 ] && [ "$failed_tests" -eq 0 ]; then
             status="PASS ✅"
-          elif [[ "$failed_tests" -gt 0 ]]; then
+          elif [ "$failed_tests" -gt 0 ]; then
             status="FAIL ❌"
           else
             status="NO TESTS ❌"
@@ -121,6 +94,7 @@ jobs:
           echo "failed_tests=$failed_tests" >> "$GITHUB_OUTPUT"
           echo "duration=$duration" >> "$GITHUB_OUTPUT"
           echo "plan_names=$plan_names" >> "$GITHUB_OUTPUT"
+          echo "test_case_names=$test_case_names_safe" >> "$GITHUB_OUTPUT"
 
       - name: Send Teams Adaptive Card
         env:
@@ -130,12 +104,10 @@ jobs:
           FAILED: ${{ steps.results.outputs.failed_tests }}
           DURATION: ${{ steps.results.outputs.duration }}
           PLANS: ${{ steps.results.outputs.plan_names }}
-          TESTS: ${{ steps.results.outputs.test_case_names }}
+          TESTS_ENCODED: ${{ steps.results.outputs.test_case_names }}
         run: |
-          set -euo pipefail
-
-          # Escape test case names for JSON
-          TESTS_JSON=$(echo "${TESTS}" | python3 -c 'import json,sys; print(json.dumps(sys.stdin.read()))')
+          # Decode %0A back to newline for Teams
+          TESTS="${TESTS_ENCODED//%0A/$'\n'}"
 
           curl -X POST -H "Content-Type: application/json" \
             -d "{
@@ -154,8 +126,7 @@ jobs:
                       { \"type\": \"TextBlock\", \"weight\": \"Bolder\", \"text\": \"Passed: ${PASSED}\" },
                       { \"type\": \"TextBlock\", \"weight\": \"Bolder\", \"text\": \"Failed: ${FAILED}\" },
                       { \"type\": \"TextBlock\", \"weight\": \"Bolder\", \"text\": \"Duration (s): ${DURATION}\" },
-                      { \"type\": \"TextBlock\", \"weight\": \"Bolder\", \"text\": \"Tests:\" },
-                      { \"type\": \"TextBlock\", \"text\": $TESTS_JSON, \"wrap\": true }
+                      { \"type\": \"TextBlock\", \"weight\": \"Bolder\", \"text\": \"Tests: \n${TESTS}\" }
                     ]
                   }
                 }
