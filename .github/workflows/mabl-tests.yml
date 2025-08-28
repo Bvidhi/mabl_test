@@ -29,8 +29,8 @@ jobs:
           echo "Triggering Mabl deployment..."
           mabl deployments create \
             --api-key "${{ secrets.API_KEY }}" \
-            --application-id "Oonui6hTcPcWFf7v4y4exA-a" \
-            --environment-id "JOHGzivFdBgSLdoq2kCagA-e" \
+            --application-id "P0JGPLSxCfMzvy27dSGseg-a" \
+            --environment-id "AgZiMGbNT4tach5zIIbQbA-e" \
             --await-completion \
             --output json > event.json
 
