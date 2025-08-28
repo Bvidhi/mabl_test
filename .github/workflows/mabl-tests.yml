@@ -103,7 +103,7 @@ jobs:
           # Names
           plan_names=$(jq -r '[.executions[]?.plan?.name] | unique | join(", ") // "N/A"' results.json)
           # Numbered list of test names, each on a new line
-          # Numbered list of test names, each on a new line
+          # 1️⃣ Extract test case names from results.json
           test_case_names=$(jq -r '
             [.executions[]?.journey_executions[]?.name // empty]
             | to_entries
@@ -111,13 +111,10 @@ jobs:
             | join("\n")
           ' results.json || echo "")
           
-          # Escape multi-line test case names for JSON (for Adaptive Card)
-          TESTS_JSON=$(echo "$test_case_names" | python3 -c 'import json,sys; print(json.dumps(sys.stdin.read()))')
+          # 2️⃣ Ensure TESTS_JSON is always defined before use
+          TESTS_JSON=$(echo "$test_case_names" | python3 -c 'import json,sys; print(json.dumps(sys.stdin.read()))' || echo '""')
           
-          # If TESTS_JSON is still empty, set to empty string to avoid unbound variable error
-          TESTS_JSON=${TESTS_JSON:-""}
-          
-          # Write multi-line output safely to GitHub Actions
+          # 3️⃣ Write to GitHub Actions output safely
           echo "test_case_names<<EOF" >> "$GITHUB_OUTPUT"
           echo "$test_case_names" >> "$GITHUB_OUTPUT"
           echo "EOF" >> "$GITHUB_OUTPUT"
