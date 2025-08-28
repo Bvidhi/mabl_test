@@ -23,7 +23,7 @@ jobs:
             -H "Authorization: Bearer ${{ secrets.BEARER_TOKEN }}" \
             -H "Content-Type: application/json" \
             -d '{
-              "plan_id": "PUT_YOUR_PLAN_ID_HERE",
+              "application-id": "Oonui6hTcPcWFf7v4y4exA-a",
               "environment_id": "JOHGzivFdBgSLdoq2kCagA-e"
             }' \
             "https://api.mabl.com/execution/run")
