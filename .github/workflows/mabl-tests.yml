@@ -102,18 +102,12 @@ jobs:
 
           # Names
           plan_names=$(jq -r '[.executions[]?.plan?.name] | unique | join(", ") // "N/A"' results.json)
-          # 1️⃣ Extract test case names safely
           test_case_names=$(jq -r '
             [.executions[]?.journey_executions[]?.name // empty]
             | to_entries
             | map("\(.key+1). \(.value)")
             | join("\n")
           ' results.json || echo "")
-          
-          # 2️⃣ Write to GitHub Actions multiline output
-          echo "test_case_names<<EOF" >> "$GITHUB_OUTPUT"
-          echo "$test_case_names" >> "$GITHUB_OUTPUT"
-          echo "EOF" >> "$GITHUB_OUTPUT"
           
           # Overall status
           if [ "$total_tests" -gt 0 ] && [ "$failed_tests" -eq 0 ]; then
@@ -144,30 +138,31 @@ jobs:
           TESTS: ${{ steps.results.outputs.test_case_names }}
         run: |
           set -euo pipefail
-          ESCAPED_TESTS=$(echo "${{ steps.results.outputs.test_case_names }}" | python3 -c 'import json,sys; print(json.dumps(sys.stdin.read()))')
+          ESCAPED_TESTS=$(echo "$test_case_names" | python3 -c 'import json,sys; print(json.dumps(sys.stdin.read()))')
 
           curl -X POST -H "Content-Type: application/json" \
             -d "{
-              \"attachments\": [
-                {
-                  \"contentType\": \"application/vnd.microsoft.card.adaptive\",
-                  \"content\": {
-                    \"\$schema\": \"http://adaptivecards.io/schemas/adaptive-card.json\",
-                    \"type\": \"AdaptiveCard\",
-                    \"version\": \"1.4\",
-                    \"body\": [
-                      { \"type\": \"TextBlock\", \"size\": \"Large\", \"weight\": \"Bolder\", \"text\": \"Mabl Test Results\" },
-                      { \"type\": \"TextBlock\", \"weight\": \"Bolder\", \"text\": \"Plan(s): ${PLANS}\" },
-                      { \"type\": \"TextBlock\", \"weight\": \"Bolder\", \"text\": \"Status: ${STATUS}\" },
-                      { \"type\": \"TextBlock\", \"weight\": \"Bolder\", \"text\": \"Total Tests: ${TOTAL}\" },
-                      { \"type\": \"TextBlock\", \"weight\": \"Bolder\", \"text\": \"Passed: ${PASSED}\" },
-                      { \"type\": \"TextBlock\", \"weight\": \"Bolder\", \"text\": \"Failed: ${FAILED}\" },
-                      { \"type\": \"TextBlock\", \"weight\": \"Bolder\", \"text\": \"Duration (s): ${DURATION}\" },
-                      { \"type\": \"TextBlock\", \"weight\": \"Bolder\", \"text\": \"Tests:\", \"wrap\": true },
-                      { \"type\": \"TextBlock\", \"text\": $ESCAPED_TESTS, \"wrap\": true }
-                    ]
-                  }
-                }
-              ]
-            }" \
+                  \"attachments\": [
+                    {
+                      \"contentType\": \"application/vnd.microsoft.card.adaptive\",
+                      \"content\": {
+                        \"\$schema\": \"http://adaptivecards.io/schemas/adaptive-card.json\",
+                        \"type\": \"AdaptiveCard\",
+                        \"version\": \"1.4\",
+                        \"body\": [
+                          { \"type\": \"TextBlock\", \"size\": \"Large\", \"weight\": \"Bolder\", \"text\": \"Mabl Test Results\" },
+                          { \"type\": \"TextBlock\", \"weight\": \"Bolder\", \"text\": \"Plan(s): ${PLANS}\" },
+                          { \"type\": \"TextBlock\", \"weight\": \"Bolder\", \"text\": \"Status: ${STATUS}\" },
+                          { \"type\": \"TextBlock\", \"weight\": \"Bolder\", \"text\": \"Total Tests: ${TOTAL}\" },
+                          { \"type\": \"TextBlock\", \"weight\": \"Bolder\", \"text\": \"Passed: ${PASSED}\" },
+                          { \"type\": \"TextBlock\", \"weight\": \"Bolder\", \"text\": \"Failed: ${FAILED}\" },
+                          { \"type\": \"TextBlock\", \"weight\": \"Bolder\", \"text\": \"Duration (s): ${DURATION}\" },
+                          { \"type\": \"TextBlock\", \"weight\": \"Bolder\", \"text\": \"Tests:\", \"wrap\": true },
+                          { \"type\": \"TextBlock\", \"text\": $ESCAPED_TESTS, \"wrap\": true }
+                        ]
+                      }
+                    }
+                  ]
+                }" \
             "${{ secrets.POWER_AUTOMATE_URL }}"
+
