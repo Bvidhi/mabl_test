@@ -2,13 +2,13 @@ name: Run all Mabl tests
 
 on:
   push:
-    branches: ["**"]
+    branches: ["*"]
   pull_request:
-    branches: ["**"]
+    branches: ["*"]
   workflow_dispatch:
   
   schedule:
-    - cron: '0 9 * * *'
+    - cron: '30 9 * * *'
 
 jobs:
   mabl-tests:
