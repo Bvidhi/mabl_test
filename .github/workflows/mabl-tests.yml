@@ -99,7 +99,7 @@ jobs:
 
           # Names
           plan_names=$(jq -r '[.executions[]?.plan?.name] | unique | join(", ") // "N/A"' results.json)
-          test_case_names=$(jq -r '[.executions[]?.journeys[]?.name] | unique | join(", ") // "N/A"' results.json)
+          test_case_names=$(jq -r '[.executions[]?.journeys[]?.name] | unique | join("\n") // "N/A"' results.json)
 
           # Overall status
           if [ "$total_tests" -gt 0 ] && [ "$failed_tests" -eq 0 ]; then
