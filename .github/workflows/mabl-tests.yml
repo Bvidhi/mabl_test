@@ -104,13 +104,15 @@ jobs:
           plan_names=$(jq -r '[.executions[]?.plan?.name] | unique | join(", ") // "N/A"' results.json)
           # Numbered list of test names, each on a new line
           {
-          echo "test_case_names<<EOF"
-          jq -r '[.executions[]?.journeys[]?.name] 
-                 | unique 
-                 | to_entries 
-                 | map("\(.key+1). \(.value)") 
-                 | join("\n") // "N/A"' results.json
-          echo "EOF"
+            echo "test_case_names<<EOF"
+            jq -r '
+              [.executions[]?.journey_executions[]?.journey_id // empty] 
+              | to_entries 
+              | map("\(.key+1). \(.value)") 
+              | join("\n") 
+              // "N/A"
+            ' results.json || echo "N/A"
+            echo "EOF"
           } >> "$GITHUB_OUTPUT"
 
           # Overall status
