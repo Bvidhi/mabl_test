@@ -2,9 +2,9 @@ name: Run all Mabl tests
 
 on:
   push:
-    branches: ["main"]
+    branches: ["**"]
   pull_request:
-    branches: ["main"]
+    branches: ["**"]
   workflow_dispatch:
 
 jobs:
@@ -15,100 +15,142 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v3
 
-      - name: Install Mabl CLI
+      - name: Install mabl CLI
         uses: mablhq/setup-mabl-cli@v1
 
-      - name: Trigger Mabl deployment
+      - name: Ensure jq is available
+        run: jq --version || (sudo apt-get update -y && sudo apt-get install -y jq)
+
+      # 1) Trigger deployment and wait for completion. Capture the deployment event id.
+      - name: Trigger Mabl deployment (await)
         id: trigger
         run: |
+          set -euo pipefail
           echo "Triggering Mabl deployment..."
-          DEPLOYMENT=$(mabl deployments create \
+          mabl deployments create \
             --api-key "${{ secrets.API_KEY }}" \
             --application-id "Oonui6hTcPcWFf7v4y4exA-a" \
             --environment-id "JOHGzivFdBgSLdoq2kCagA-e" \
             --await-completion \
-            --output json)
+            --output json > event.json
 
-          echo "$DEPLOYMENT" > deployment.json
-          deployment_id=$(jq -r '.id // empty' deployment.json)
+          echo "Event JSON:"
+          cat event.json
 
-          if [ -z "$deployment_id" ]; then
-            echo "Deployment ID not found."
+          event_id=$(jq -r '.id // empty' event.json)
+          if [ -z "$event_id" ] || [ "$event_id" = "null" ]; then
+            echo "No event id in response. Exiting."
             exit 1
           fi
+          echo "event_id=$event_id" >> "$GITHUB_OUTPUT"
 
-          echo "deployment_id=$deployment_id" >> $GITHUB_OUTPUT
-
-      - name: Fetch Mabl test results
+      # 2) Poll the CORRECT endpoint until results are ready, then compute metrics.
+      - name: Fetch Mabl results (poll correct endpoint)
         id: results
+        env:
+          API_KEY: ${{ secrets.API_KEY }}   # BASIC auth with API key (NOT Bearer)
+          EVENT_ID: ${{ steps.trigger.outputs.event_id }}
         run: |
-          echo "Fetching results for deployment: ${{ steps.trigger.outputs.deployment_id }}"
+          set -euo pipefail
+          echo "Fetching results for deployment event: ${EVENT_ID}"
 
-          for i in {1..10}; do
-            RESPONSE=$(curl -s -H "Authorization: Bearer ${{ secrets.API_KEY }}" \
-              "https://api.mabl.com/v1/deployments/${{ steps.trigger.outputs.deployment_id }}/executions")
+          BASE_URL="https://api.mabl.com/execution/result/event/${EVENT_ID}"
 
-            echo "Raw API response (attempt $i):"
-            echo "$RESPONSE"
+          # up to ~5 minutes polling (30 * 10s)
+          for attempt in $(seq 1 30); do
+            http_code=$(curl -sS -u "key:${API_KEY}" -o results.json -w "%{http_code}" "$BASE_URL" || true)
 
-            # If it looks like proper JSON with plan_execution, break
-            if echo "$RESPONSE" | jq -e 'has("plan_execution")' >/dev/null 2>&1; then
-              echo "$RESPONSE" > results.json
-              break
+            echo "HTTP $http_code (attempt $attempt)"
+            # If still not found, keep waiting; mabl can be slightly behind even after await
+            if [ "$http_code" = "404" ] || [ "$http_code" = "202" ] || [ "$http_code" = "204" ]; then
+              echo "No valid results yet, waiting..."
+              sleep 10
+              continue
             fi
 
-            echo "No valid results yet, waiting..."
-            sleep 15
+            if [ "$http_code" != "200" ]; then
+              echo "Unexpected HTTP code: $http_code"
+              cat results.json || true
+              sleep 10
+              continue
+            fi
+
+            # Ensure the payload has metrics
+            has_metrics=$(jq -r 'has("journey_execution_metrics")' results.json)
+            if [ "$has_metrics" != "true" ]; then
+              echo "Results present but metrics not ready, waiting..."
+              sleep 10
+              continue
+            fi
+
+            break
           done
 
-          if [ ! -s results.json ]; then
-            echo "No test results after waiting, exiting."
-            echo "total_tests=0" >> $GITHUB_OUTPUT
-            echo "test_case_names=none" >> $GITHUB_OUTPUT
-            echo "status=NO RESULTS ❌" >> $GITHUB_OUTPUT
-            echo "duration=0" >> $GITHUB_OUTPUT
-            exit 0
-          fi
+          echo "Raw results:"
+          cat results.json
 
-          # Parse results once JSON is valid
-          total_tests=$(jq '[.plan_execution.test_runs[]?] | length' results.json)
-          duration=$(jq '[.plan_execution.test_runs[]?.duration_seconds] | add // 0' results.json)
-          test_case_names=$(jq -r '[.plan_execution.test_runs[]?.name] | join(", ")' results.json)
-          failed_count=$(jq '[.plan_execution.test_runs[]?.status] | map(select(.!="PASSED")) | length' results.json)
+          # Metrics
+          total_tests=$(jq -r '.journey_execution_metrics.total // 0' results.json)
+          failed_tests=$(jq -r '.journey_execution_metrics.failed // 0' results.json)
+          passed_tests=$(jq -r '.journey_execution_metrics.passed // 0' results.json)
 
-          if [ "$failed_count" -eq 0 ] && [ "$total_tests" -gt 0 ]; then
-              status="PASS ✅"
-          elif [ "$total_tests" -eq 0 ]; then
-              status="NO TESTS ❌"
+          # Duration (sum plan execution windows, ms -> s)
+          duration=$(jq '[.executions[]? | select(.start_time and .stop_time) | (.stop_time - .start_time)] | add // 0 | floor / 1000' results.json)
+
+          # Names
+          plan_names=$(jq -r '[.executions[]?.plan?.name] | unique | join(", ") // "N/A"' results.json)
+          test_case_names=$(jq -r '[.executions[]?.journeys[]?.name] | unique | join(", ") // "N/A"' results.json)
+
+          # Overall status
+          if [ "$total_tests" -gt 0 ] && [ "$failed_tests" -eq 0 ]; then
+            status="PASS ✅"
+          elif [ "$failed_tests" -gt 0 ]; then
+            status="FAIL ❌"
           else
-              status="FAIL ❌"
+            status="NO TESTS ❌"
           fi
 
-          echo "total_tests=$total_tests" >> $GITHUB_OUTPUT
-          echo "test_case_names=$test_case_names" >> $GITHUB_OUTPUT
-          echo "status=$status" >> $GITHUB_OUTPUT
-          echo "duration=$duration" >> $GITHUB_OUTPUT
+          echo "status=$status" >> "$GITHUB_OUTPUT"
+          echo "total_tests=$total_tests" >> "$GITHUB_OUTPUT"
+          echo "passed_tests=$passed_tests" >> "$GITHUB_OUTPUT"
+          echo "failed_tests=$failed_tests" >> "$GITHUB_OUTPUT"
+          echo "duration=$duration" >> "$GITHUB_OUTPUT"
+          echo "plan_names=$plan_names" >> "$GITHUB_OUTPUT"
+          echo "test_case_names=$test_case_names" >> "$GITHUB_OUTPUT"
 
-      - name: Notify Teams with Adaptive Card
+      # 3) Post the (bold) TextBlocks Adaptive Card to Teams/Power Automate
+      - name: Send Teams Adaptive Card
+        env:
+          STATUS: ${{ steps.results.outputs.status }}
+          TOTAL: ${{ steps.results.outputs.total_tests }}
+          PASSED: ${{ steps.results.outputs.passed_tests }}
+          FAILED: ${{ steps.results.outputs.failed_tests }}
+          DURATION: ${{ steps.results.outputs.duration }}
+          PLANS: ${{ steps.results.outputs.plan_names }}
+          TESTS: ${{ steps.results.outputs.test_case_names }}
         run: |
+          set -euo pipefail
           curl -X POST -H "Content-Type: application/json" \
-          -d '{
-            "attachments": [
-              {
-                "contentType": "application/vnd.microsoft.card.adaptive",
-                "content": {
-                  "$schema": "http://adaptivecards.io/schemas/adaptive-card.json",
-                  "type": "AdaptiveCard",
-                  "version": "1.4",
-                  "body": [
-                    { "type": "TextBlock", "size": "Large", "weight": "Bolder", "text": "Mabl Test Results" },
-                    { "type": "TextBlock", "weight": "Bolder", "text": "Plan: Sanity Tests" },
-                    { "type": "TextBlock", "weight": "Bolder", "text": "Status: ${{ steps.results.outputs.status }}" },
-                    { "type": "TextBlock", "weight": "Bolder", "text": "Total Tests: ${{ steps.results.outputs.total_tests }}" },
-                    { "type": "TextBlock", "weight": "Bolder", "text": "Duration (s): ${{ steps.results.outputs.duration }}" },
-                    { "type": "TextBlock", "weight": "Bolder", "text": "Test Case Names: ${{ steps.results.outputs.test_case_names }}" }
-                  ]
+            -d "{
+              \"attachments\": [
+                {
+                  \"contentType\": \"application/vnd.microsoft.card.adaptive\",
+                  \"content\": {
+                    \"\$schema\": \"http://adaptivecards.io/schemas/adaptive-card.json\",
+                    \"type\": \"AdaptiveCard\",
+                    \"version\": \"1.4\",
+                    \"body\": [
+                      { \"type\": \"TextBlock\", \"size\": \"Large\", \"weight\": \"Bolder\", \"text\": \"Mabl Test Results\" },
+                      { \"type\": \"TextBlock\", \"weight\": \"Bolder\", \"text\": \"Plan(s): ${PLANS}\" },
+                      { \"type\": \"TextBlock\", \"weight\": \"Bolder\", \"text\": \"Status: ${STATUS}\" },
+                      { \"type\": \"TextBlock\", \"weight\": \"Bolder\", \"text\": \"Total Tests: ${TOTAL}\" },
+                      { \"type\": \"TextBlock\", \"weight\": \"Bolder\", \"text\": \"Passed: ${PASSED}\" },
+                      { \"type\": \"TextBlock\", \"weight\": \"Bolder\", \"text\": \"Failed: ${FAILED}\" },
+                      { \"type\": \"TextBlock\", \"weight\": \"Bolder\", \"text\": \"Duration (s): ${DURATION}\" },
+                      { \"type\": \"TextBlock\", \"weight\": \"Bolder\", \"text\": \"Tests: ${TESTS}\" }
+                    ]
+                  }
                 }
-              }
-            ]
-          }' "${{ secrets.POWER_AUTOMATE_URL }}"
+              ]
+            }" \
+            "${{ secrets.POWER_AUTOMATE_URL }}"
