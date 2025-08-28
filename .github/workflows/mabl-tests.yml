@@ -57,8 +57,17 @@ jobs:
           done
 
           # Initialize variable to avoid unbound error
-          test_case_names="N/A"
+          test_case_names=$(jq -r '
+            [.executions[]?.journey_executions[]?.name // empty]
+            | to_entries
+            | map("\(.key+1). \(.value)")
+            | join("\n")
+          ' results.json || echo "")
 
+          echo "test_case_names<<EOF" >> "$GITHUB_OUTPUT"
+          echo "$test_case_names" >> "$GITHUB_OUTPUT"
+          echo "EOF" >> "$GITHUB_OUTPUT"
+          
           # Extract test case names safely
           extracted_names=$(jq -r '
             [.executions[]?.journey_executions[]?.name // empty]
@@ -110,6 +119,8 @@ jobs:
           TESTS: ${{ steps.results.outputs.test_case_names }}
         run: |
           set -euo pipefail
+          ESCAPED_TESTS=$(echo "${{ steps.results.outputs.test_case_names }}" | python3 -c 'import json,sys; print(json.dumps(sys.stdin.read()))')
+
           curl -X POST -H "Content-Type: application/json" \
             -d "{
                   \"attachments\": [
@@ -127,8 +138,8 @@ jobs:
                           { \"type\": \"TextBlock\", \"weight\": \"Bolder\", \"text\": \"Passed: ${PASSED}\" },
                           { \"type\": \"TextBlock\", \"weight\": \"Bolder\", \"text\": \"Failed: ${FAILED}\" },
                           { \"type\": \"TextBlock\", \"weight\": \"Bolder\", \"text\": \"Duration (s): ${DURATION}\" },
-                          { \"type\": \"TextBlock\", \"weight\": \"Bolder\", \"text\": \"Tests:\", \"wrap\": true },
-                          { \"type\": \"TextBlock\", \"text\": $TESTS, \"wrap\": true }
+                          { \"type\": \"TextBlock\", \"weight\": \"Bolder\", \"text\": \"Tests:\" },
+                          { \"type\": \"TextBlock\", \"text\": $ESCAPED_TESTS, \"wrap\": true }
                         ]
                       }
                     }
