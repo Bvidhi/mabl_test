@@ -15,63 +15,68 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v3
 
-      - name: Install Mabl CLI
-        uses: mablhq/setup-mabl-cli@v1
-
-      - name: Trigger Mabl deployment
+      - name: Trigger Mabl Plan Run
         id: trigger
         run: |
-          echo "Triggering Mabl deployment for branch $GITHUB_REF_NAME..."
-          mabl deployments create \
-            --api-key "${{ secrets.API_KEY }}" \
-            --application-id "Oonui6hTcPcWFf7v4y4exA-a" \
-            --environment-id "JOHGzivFdBgSLdoq2kCagA-e" \
-            --await-completion \
-            --output json > deployment.json
+          echo "Triggering Mabl Plan Run..."
+          RESPONSE=$(curl -s -X POST \
+            -H "Authorization: Bearer ${{ secrets.BEARER_TOKEN }}" \
+            -H "Content-Type: application/json" \
+            -d '{
+              "plan_id": "PUT_YOUR_PLAN_ID_HERE",
+              "environment_id": "JOHGzivFdBgSLdoq2kCagA-e"
+            }' \
+            "https://api.mabl.com/execution/run")
 
-          deployment_id=$(jq -r '.id // empty' deployment.json)
-          if [ -z "$deployment_id" ]; then
-            echo "deployment_id not found, exiting."
+          run_id=$(echo "$RESPONSE" | jq -r '.id')
+          if [ -z "$run_id" ] || [ "$run_id" == "null" ]; then
+            echo "Run ID not found. Exiting."
             exit 1
           fi
-          echo "deployment_id=$deployment_id" >> $GITHUB_OUTPUT
+          echo "run_id=$run_id" >> $GITHUB_OUTPUT
 
-      - name: Fetch Mabl test results
+      - name: Wait for Plan Run to Complete
+        id: wait
+        run: |
+          run_id="${{ steps.trigger.outputs.run_id }}"
+          echo "Waiting for run $run_id to complete..."
+          for i in {1..30}; do
+            STATUS=$(curl -s -H "Authorization: Bearer ${{ secrets.BEARER_TOKEN }}" \
+              "https://api.mabl.com/execution/run/$run_id" | jq -r '.status')
+
+            echo "Current status: $STATUS"
+            if [ "$STATUS" == "succeeded" ] || [ "$STATUS" == "failed" ]; then
+              echo "final_status=$STATUS" >> $GITHUB_OUTPUT
+              break
+            fi
+            sleep 20
+          done
+
+      - name: Fetch Mabl Results
         id: results
         run: |
-          echo "Fetching actual test results from Mabl API..."
+          run_id="${{ steps.trigger.outputs.run_id }}"
+          echo "Fetching test results for run $run_id..."
+
           RESPONSE=$(curl -s -H "Authorization: Bearer ${{ secrets.BEARER_TOKEN }}" \
-            "https://api.mabl.com/results/deployment/${{ steps.trigger.outputs.deployment_id }}/testRuns")
+            "https://api.mabl.com/results/run/$run_id")
 
-          # Handle empty or null response
-          if [ -z "$RESPONSE" ] || [ "$RESPONSE" = "null" ]; then
-            echo "No test runs found."
-            echo "total_tests=0" >> $GITHUB_OUTPUT
-            echo "test_case_names=none" >> $GITHUB_OUTPUT
-            echo "status=NO TEST RUNS ❌" >> $GITHUB_OUTPUT
-            echo "duration=0" >> $GITHUB_OUTPUT
-            exit 0
-          fi
+          total_tests=$(echo "$RESPONSE" | jq '[.journeys[]] | length')
+          failed_count=$(echo "$RESPONSE" | jq '[.journeys[] | select(.result != "succeeded")] | length')
+          test_case_names=$(echo "$RESPONSE" | jq -r '[.journeys[].journey_name] | join(", ")')
 
-          # Extract total tests, duration, test case names, failed count
-          total_tests=$(echo "$RESPONSE" | jq '[.test_runs[]?] | length')
-          duration=$(echo "$RESPONSE" | jq '[.test_runs[]?.duration_seconds] | add // 0')
-          test_case_names=$(echo "$RESPONSE" | jq -r '[.test_runs[]?.name] | join(", ")')
-          failed_count=$(echo "$RESPONSE" | jq '[.test_runs[]?.status] | map(select(.!="PASSED")) | length')
-
-          # Compute status
           if [ "$failed_count" -eq 0 ] && [ "$total_tests" -gt 0 ]; then
-              status="PASS ✅"
+            status="PASS ✅"
           elif [ "$total_tests" -eq 0 ]; then
-              status="NO TESTS ❌"
+            status="NO TESTS ❌"
           else
-              status="FAIL ❌"
+            status="FAIL ❌"
           fi
 
           echo "total_tests=$total_tests" >> $GITHUB_OUTPUT
-          echo "test_case_names=$test_case_names" >> $GITHUB_OUTPUT
+          echo "failed_count=$failed_count" >> $GITHUB_OUTPUT
           echo "status=$status" >> $GITHUB_OUTPUT
-          echo "duration=$duration" >> $GITHUB_OUTPUT
+          echo "test_case_names=$test_case_names" >> $GITHUB_OUTPUT
 
       - name: Send Teams Adaptive Card
         run: |
@@ -86,11 +91,10 @@ jobs:
                   "version": "1.4",
                   "body": [
                     { "type": "TextBlock", "size": "Large", "weight": "Bolder", "text": "Mabl Test Results" },
-                    { "type": "TextBlock", "weight": "Bolder", "text": "Plan: Sanity Tests" },
                     { "type": "TextBlock", "weight": "Bolder", "text": "Status: ${{ steps.results.outputs.status }}" },
                     { "type": "TextBlock", "weight": "Bolder", "text": "Total Tests: ${{ steps.results.outputs.total_tests }}" },
-                    { "type": "TextBlock", "weight": "Bolder", "text": "Duration (s): ${{ steps.results.outputs.duration }}" },
-                    { "type": "TextBlock", "weight": "Bolder", "text": "Test Case Names: ${{ steps.results.outputs.test_case_names }}" }
+                    { "type": "TextBlock", "weight": "Bolder", "text": "Failed Tests: ${{ steps.results.outputs.failed_count }}" },
+                    { "type": "TextBlock", "weight": "Bolder", "text": "Test Cases: ${{ steps.results.outputs.test_case_names }}" }
                   ]
                 }
               }
