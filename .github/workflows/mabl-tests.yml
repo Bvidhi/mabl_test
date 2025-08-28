@@ -39,27 +39,55 @@ jobs:
 
           echo "deployment_id=$deployment_id" >> $GITHUB_OUTPUT
 
-      - name: Fetch test run results
+      - name: Fetch Mabl test results
         id: results
         run: |
           echo "Fetching results for deployment: ${{ steps.trigger.outputs.deployment_id }}"
-          RESPONSE=$(curl -s -w "\n%{http_code}\n" -H "Authorization: Bearer ${{ secrets.API_KEY }}" \
-            "https://api.mabl.com/v1/deployments/${{ steps.trigger.outputs.deployment_id }}/executions")
 
-          echo "Raw API response:"
-          echo "$RESPONSE"
+          for i in {1..10}; do
+            RESPONSE=$(curl -s -H "Authorization: Bearer ${{ secrets.API_KEY }}" \
+              "https://api.mabl.com/v1/deployments/${{ steps.trigger.outputs.deployment_id }}/executions")
 
-          BODY=$(echo "$RESPONSE" | head -n -1)
-          STATUS=$(echo "$RESPONSE" | tail -n 1)
+            echo "Raw API response (attempt $i):"
+            echo "$RESPONSE"
 
-          if [ "$STATUS" -ne 200 ]; then
-            echo "API call failed with status $STATUS"
-            cat results.json
-            exit 1
+            # If it looks like proper JSON with plan_execution, break
+            if echo "$RESPONSE" | jq -e 'has("plan_execution")' >/dev/null 2>&1; then
+              echo "$RESPONSE" > results.json
+              break
+            fi
+
+            echo "No valid results yet, waiting..."
+            sleep 15
+          done
+
+          if [ ! -s results.json ]; then
+            echo "No test results after waiting, exiting."
+            echo "total_tests=0" >> $GITHUB_OUTPUT
+            echo "test_case_names=none" >> $GITHUB_OUTPUT
+            echo "status=NO RESULTS ❌" >> $GITHUB_OUTPUT
+            echo "duration=0" >> $GITHUB_OUTPUT
+            exit 0
           fi
 
-          echo "$BODY" > results.json
-          jq . results.json
+          # Parse results once JSON is valid
+          total_tests=$(jq '[.plan_execution.test_runs[]?] | length' results.json)
+          duration=$(jq '[.plan_execution.test_runs[]?.duration_seconds] | add // 0' results.json)
+          test_case_names=$(jq -r '[.plan_execution.test_runs[]?.name] | join(", ")' results.json)
+          failed_count=$(jq '[.plan_execution.test_runs[]?.status] | map(select(.!="PASSED")) | length' results.json)
+
+          if [ "$failed_count" -eq 0 ] && [ "$total_tests" -gt 0 ]; then
+              status="PASS ✅"
+          elif [ "$total_tests" -eq 0 ]; then
+              status="NO TESTS ❌"
+          else
+              status="FAIL ❌"
+          fi
+
+          echo "total_tests=$total_tests" >> $GITHUB_OUTPUT
+          echo "test_case_names=$test_case_names" >> $GITHUB_OUTPUT
+          echo "status=$status" >> $GITHUB_OUTPUT
+          echo "duration=$duration" >> $GITHUB_OUTPUT
 
       - name: Notify Teams with Adaptive Card
         run: |
