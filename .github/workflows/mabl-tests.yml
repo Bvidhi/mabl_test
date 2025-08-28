@@ -15,25 +15,43 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v3
 
-      - name: Install mabl CLI
+      - name: Install Mabl CLI
         uses: mablhq/setup-mabl-cli@v1
 
-      - name: Run mabl tests
-        id: run_tests
+      - name: Trigger Mabl deployment
+        id: trigger
         run: |
-          echo "Running Mabl tests for application..."
-          mabl deployments create \
+          echo "Triggering Mabl deployment..."
+          DEPLOYMENT=$(mabl deployments create \
             --api-key "${{ secrets.API_KEY }}" \
             --application-id "Oonui6hTcPcWFf7v4y4exA-a" \
             --environment-id "JOHGzivFdBgSLdoq2kCagA-e" \
             --await-completion \
-            --output json > results.json
+            --output json)
 
-          # Parse results
-          total_tests=$(jq '[.test_runs[]?] | length' results.json)
-          duration=$(jq '[.test_runs[]?.duration_seconds] | add // 0' results.json)
-          test_case_names=$(jq -r '[.test_runs[]?.name] | join(", ")' results.json)
-          failed_count=$(jq '[.test_runs[]?.status] | map(select(.!="PASSED")) | length' results.json)
+          echo "$DEPLOYMENT" > deployment.json
+          deployment_id=$(jq -r '.id // empty' deployment.json)
+
+          if [ -z "$deployment_id" ]; then
+            echo "Deployment ID not found."
+            exit 1
+          fi
+
+          echo "deployment_id=$deployment_id" >> $GITHUB_OUTPUT
+
+      - name: Fetch test run results
+        id: results
+        run: |
+          echo "Fetching results for deployment: ${{ steps.trigger.outputs.deployment_id }}"
+          RESPONSE=$(curl -s -H "Authorization: Bearer ${{ secrets.BEARER_TOKEN }}" \
+            "https://api.mabl.com/v1/deployments/${{ steps.trigger.outputs.deployment_id }}/executions")
+
+          echo "$RESPONSE" > results.json
+
+          total_tests=$(jq '[.[].plan_execution.stages[].tests[]?] | length' results.json)
+          duration=$(jq '[.[].plan_execution.stages[].tests[]?.duration_seconds] | add // 0' results.json)
+          test_case_names=$(jq -r '[.[].plan_execution.stages[].tests[]?.name] | join(", ")' results.json)
+          failed_count=$(jq '[.[].plan_execution.stages[].tests[]?.status] | map(select(.!="succeeded")) | length' results.json)
 
           if [ "$failed_count" -eq 0 ] && [ "$total_tests" -gt 0 ]; then
             status="PASS ✅"
@@ -48,7 +66,7 @@ jobs:
           echo "test_case_names=$test_case_names" >> $GITHUB_OUTPUT
           echo "status=$status" >> $GITHUB_OUTPUT
 
-      - name: Notify Teams with Mabl results
+      - name: Notify Teams with Adaptive Card
         run: |
           curl -X POST -H "Content-Type: application/json" \
           -d '{
@@ -62,10 +80,10 @@ jobs:
                   "body": [
                     { "type": "TextBlock", "size": "Large", "weight": "Bolder", "text": "Mabl Test Results" },
                     { "type": "TextBlock", "weight": "Bolder", "text": "Plan: Sanity Tests" },
-                    { "type": "TextBlock", "weight": "Bolder", "text": "Status: ${{ steps.run_tests.outputs.status }}" },
-                    { "type": "TextBlock", "weight": "Bolder", "text": "Total Tests: ${{ steps.run_tests.outputs.total_tests }}" },
-                    { "type": "TextBlock", "weight": "Bolder", "text": "Duration (s): ${{ steps.run_tests.outputs.duration }}" },
-                    { "type": "TextBlock", "weight": "Bolder", "text": "Test Case Names: ${{ steps.run_tests.outputs.test_case_names }}" }
+                    { "type": "TextBlock", "weight": "Bolder", "text": "Status: ${{ steps.results.outputs.status }}" },
+                    { "type": "TextBlock", "weight": "Bolder", "text": "Total Tests: ${{ steps.results.outputs.total_tests }}" },
+                    { "type": "TextBlock", "weight": "Bolder", "text": "Duration (s): ${{ steps.results.outputs.duration }}" },
+                    { "type": "TextBlock", "weight": "Bolder", "text": "Test Case Names: ${{ steps.results.outputs.test_case_names }}" }
                   ]
                 }
               }
