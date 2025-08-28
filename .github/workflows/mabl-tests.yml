@@ -76,9 +76,12 @@ jobs:
           duration=$(jq '[.executions[]? | select(.start_time and .stop_time) | (.stop_time - .start_time)] | add // 0 | floor / 1000' results.json)
           plan_names=$(jq -r '[.executions[]?.plan?.name] | unique | join(", ") // "N/A"' results.json)
 
-          # Extract test names correctly from journey_executions
-          test_case_names=$(jq -r '[.executions[]?.journey_executions[]?.journey_name] | unique | join("\n") // "N/A"' results.json)
+          # Extract test names with pass/fail
+          test_case_names=$(jq -r '[.executions[]?.journey_executions[]? | "\(.journey_name) (\(.success | if . then "PASS ✅" else "FAIL ❌" end))"] | join("\n") // "N/A"' results.json)
+
+          # Encode newline for GitHub Actions output
           test_case_names_safe="${test_case_names//$'\n'/'%0A'}"
+          echo "test_case_names=$test_case_names_safe" >> "$GITHUB_OUTPUT"
 
           if [ "$total_tests" -gt 0 ] && [ "$failed_tests" -eq 0 ]; then
             status="PASS ✅"
@@ -94,7 +97,6 @@ jobs:
           echo "failed_tests=$failed_tests" >> "$GITHUB_OUTPUT"
           echo "duration=$duration" >> "$GITHUB_OUTPUT"
           echo "plan_names=$plan_names" >> "$GITHUB_OUTPUT"
-          echo "test_case_names=$test_case_names_safe" >> "$GITHUB_OUTPUT"
 
       - name: Send Teams Adaptive Card
         env:
@@ -106,7 +108,7 @@ jobs:
           PLANS: ${{ steps.results.outputs.plan_names }}
           TESTS_ENCODED: ${{ steps.results.outputs.test_case_names }}
         run: |
-          # Decode %0A back to newline for Teams
+          # Decode %0A back to newline
           TESTS="${TESTS_ENCODED//%0A/$'\n'}"
 
           curl -X POST -H "Content-Type: application/json" \
