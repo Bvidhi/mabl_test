@@ -43,28 +43,23 @@ jobs:
         id: results
         run: |
           echo "Fetching results for deployment: ${{ steps.trigger.outputs.deployment_id }}"
-          RESPONSE=$(curl -s -H "Authorization: Bearer ${{ secrets.BEARER_TOKEN }}" \
+          RESPONSE=$(curl -s -w "\n%{http_code}\n" -H "Authorization: Bearer ${{ secrets.API_KEY }}" \
             "https://api.mabl.com/v1/deployments/${{ steps.trigger.outputs.deployment_id }}/executions")
 
-          echo "$RESPONSE" > results.json
+          echo "Raw API response:"
+          echo "$RESPONSE"
 
-          total_tests=$(jq '[.[].plan_execution.stages[].tests[]?] | length' results.json)
-          duration=$(jq '[.[].plan_execution.stages[].tests[]?.duration_seconds] | add // 0' results.json)
-          test_case_names=$(jq -r '[.[].plan_execution.stages[].tests[]?.name] | join(", ")' results.json)
-          failed_count=$(jq '[.[].plan_execution.stages[].tests[]?.status] | map(select(.!="succeeded")) | length' results.json)
+          BODY=$(echo "$RESPONSE" | head -n -1)
+          STATUS=$(echo "$RESPONSE" | tail -n 1)
 
-          if [ "$failed_count" -eq 0 ] && [ "$total_tests" -gt 0 ]; then
-            status="PASS ✅"
-          elif [ "$total_tests" -eq 0 ]; then
-            status="NO TESTS ❌"
-          else
-            status="FAIL ❌"
+          if [ "$STATUS" -ne 200 ]; then
+            echo "API call failed with status $STATUS"
+            cat results.json
+            exit 1
           fi
 
-          echo "total_tests=$total_tests" >> $GITHUB_OUTPUT
-          echo "duration=$duration" >> $GITHUB_OUTPUT
-          echo "test_case_names=$test_case_names" >> $GITHUB_OUTPUT
-          echo "status=$status" >> $GITHUB_OUTPUT
+          echo "$BODY" > results.json
+          jq . results.json
 
       - name: Notify Teams with Adaptive Card
         run: |
