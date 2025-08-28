@@ -103,7 +103,15 @@ jobs:
           # Names
           plan_names=$(jq -r '[.executions[]?.plan?.name] | unique | join(", ") // "N/A"' results.json)
           # Numbered list of test names, each on a new line
-          test_case_names=$(jq -r '[.executions[]?.journeys[]?.name] | unique | to_entries | map("\(.key+1). \(.value)") | join("\n") // "N/A"' results.json)
+          {
+          echo "test_case_names<<EOF"
+          jq -r '[.executions[]?.journeys[]?.name] 
+                 | unique 
+                 | to_entries 
+                 | map("\(.key+1). \(.value)") 
+                 | join("\n") // "N/A"' results.json
+          echo "EOF"
+          } >> "$GITHUB_OUTPUT"
 
           # Overall status
           if [ "$total_tests" -gt 0 ] && [ "$failed_tests" -eq 0 ]; then
@@ -151,7 +159,7 @@ jobs:
                       { \"type\": \"TextBlock\", \"weight\": \"Bolder\", \"text\": \"Passed: ${PASSED}\" },
                       { \"type\": \"TextBlock\", \"weight\": \"Bolder\", \"text\": \"Failed: ${FAILED}\" },
                       { \"type\": \"TextBlock\", \"weight\": \"Bolder\", \"text\": \"Duration (s): ${DURATION}\" },
-                      { \"type\": \"TextBlock\", \"weight\": \"Bolder\", \"text\": \"Tests:\n${TESTS}\"}
+                      { "type": "TextBlock", "weight": "Bolder", "text": "Tests:\n${TESTS}"}
                     ]
                   }
                 }
