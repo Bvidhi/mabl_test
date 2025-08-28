@@ -147,7 +147,7 @@ jobs:
                       { \"type\": \"TextBlock\", \"weight\": \"Bolder\", \"text\": \"Passed: ${PASSED}\" },
                       { \"type\": \"TextBlock\", \"weight\": \"Bolder\", \"text\": \"Failed: ${FAILED}\" },
                       { \"type\": \"TextBlock\", \"weight\": \"Bolder\", \"text\": \"Duration (s): ${DURATION}\" },
-                      { \"type\": \"TextBlock\", \"weight\": \"Bolder\", \"text\": \"Tests: ${TESTS}\" }
+                      { \"type\": \"TextBlock\", \"weight\": \"Bolder\", \"text\": \"Tests: \n${TESTS}\" }
                     ]
                   }
                 }
