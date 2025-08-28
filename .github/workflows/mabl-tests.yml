@@ -99,15 +99,11 @@ jobs:
 
           # Names
           plan_names=$(jq -r '[.executions[]?.plan?.name] | unique | join(", ") // "N/A"' results.json)
-          # Join test names with literal newline
-          test_case_names=$(jq -r '[.executions[]?.journeys[]?.name] | unique | join("\n") // "N/A"' results.json)
-          
-          # Encode newlines to GitHub-safe format
-          test_case_names_safe="${test_case_names//$'\n'/'%0A'}"
-          
-          # Output to GitHub Actions
-          echo "test_case_names=$test_case_names_safe" >> "$GITHUB_OUTPUT"
-
+           # Join test names with newline and URL-encode for GitHub Actions
+           test_case_names=$(jq -r '[.executions[]?.journeys[]?.name] | unique | join("\n") // "N/A"' results.json)
+           test_case_names_safe="${test_case_names//$'\n'/'%0A'}"
+        
+           echo "test_case_names=$test_case_names_safe" >> "$GITHUB_OUTPUT"
 
           # Overall status
           if [ "$total_tests" -gt 0 ] && [ "$failed_tests" -eq 0 ]; then
@@ -135,10 +131,11 @@ jobs:
           FAILED: ${{ steps.results.outputs.failed_tests }}
           DURATION: ${{ steps.results.outputs.duration }}
           PLANS: ${{ steps.results.outputs.plan_names }}
-          TESTS: ${{ steps.results.outputs.test_case_names//%0A/$'\n' }}
-
+          TESTS_ENCODED: ${{ steps.results.outputs.test_case_names }}
         run: |
-          set -euo pipefail
+          # Decode newline for Teams
+          TESTS="${TESTS_ENCODED//%0A/$'\n'}"
+      
           curl -X POST -H "Content-Type: application/json" \
             -d "{
               \"attachments\": [
@@ -163,3 +160,4 @@ jobs:
               ]
             }" \
             "${{ secrets.POWER_AUTOMATE_URL }}"
+
