@@ -102,8 +102,7 @@ jobs:
 
           # Names
           plan_names=$(jq -r '[.executions[]?.plan?.name] | unique | join(", ") // "N/A"' results.json)
-          # Numbered list of test names, each on a new line
-          # 1️⃣ Extract test case names from results.json
+          # 1️⃣ Extract test case names safely
           test_case_names=$(jq -r '
             [.executions[]?.journey_executions[]?.name // empty]
             | to_entries
@@ -111,10 +110,7 @@ jobs:
             | join("\n")
           ' results.json || echo "")
           
-          # 2️⃣ Ensure TESTS_JSON is always defined before use
-          TESTS_JSON=$(echo "$test_case_names" | python3 -c 'import json,sys; print(json.dumps(sys.stdin.read()))' || echo '""')
-          
-          # 3️⃣ Write to GitHub Actions output safely
+          # 2️⃣ Write to GitHub Actions multiline output
           echo "test_case_names<<EOF" >> "$GITHUB_OUTPUT"
           echo "$test_case_names" >> "$GITHUB_OUTPUT"
           echo "EOF" >> "$GITHUB_OUTPUT"
@@ -148,6 +144,8 @@ jobs:
           TESTS: ${{ steps.results.outputs.test_case_names }}
         run: |
           set -euo pipefail
+          ESCAPED_TESTS=$(echo "${{ steps.results.outputs.test_case_names }}" | python3 -c 'import json,sys; print(json.dumps(sys.stdin.read()))')
+
           curl -X POST -H "Content-Type: application/json" \
             -d "{
               \"attachments\": [
@@ -166,7 +164,7 @@ jobs:
                       { \"type\": \"TextBlock\", \"weight\": \"Bolder\", \"text\": \"Failed: ${FAILED}\" },
                       { \"type\": \"TextBlock\", \"weight\": \"Bolder\", \"text\": \"Duration (s): ${DURATION}\" },
                       { \"type\": \"TextBlock\", \"weight\": \"Bolder\", \"text\": \"Tests:\", \"wrap\": true },
-                      { \"type\": \"TextBlock\", \"text\": ${TESTS_JSON}, \"wrap\": true }
+                      { \"type\": \"TextBlock\", \"text\": $ESCAPED_TESTS, \"wrap\": true }
                     ]
                   }
                 }
