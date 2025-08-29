@@ -7,8 +7,9 @@ on:
     branches: ["*"]
   workflow_dispatch:
   schedule:
-    - cron: '55 15 * * *'  # 9:25 PM IST
-    - cron: '0 16 * * *'   # 9:30 PM IST
+    - cron: '30 0 * * *'  
+    - cron: '30 9 * * *'
+    - cron: '30 14 * * *'
 
 jobs:
   check-schedule:
