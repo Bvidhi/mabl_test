@@ -1,4 +1,4 @@
-name: Run all Mabl tests
+name: Run all mabl tests
 
 on:
   push: { branches: ["*"] }
@@ -19,7 +19,7 @@ jobs:
       - name: Ensure jq
         run: jq --version || sudo apt-get update -y && sudo apt-get install -y jq
 
-      - name: Trigger Mabl deployment
+      - name: Trigger mabl tests
         id: trigger
         run: |
           set -euo pipefail
@@ -36,7 +36,7 @@ jobs:
           echo "event_id=$event_id" >> "$GITHUB_OUTPUT"
           echo "deployment_success=$deployment_success" >> "$GITHUB_OUTPUT"
 
-      - name: Fetch Mabl results
+      - name: Fetch mabl results
         id: results
         if: steps.trigger.outputs.event_id != ''
         env:
@@ -72,7 +72,7 @@ jobs:
           echo "all_tests<<EOF" >> "$GITHUB_OUTPUT"; echo "$all_tests" >> "$GITHUB_OUTPUT"; echo "EOF" >> "$GITHUB_OUTPUT"
           echo "failed_tests_names<<EOF" >> "$GITHUB_OUTPUT"; echo "$failed_tests" >> "$GITHUB_OUTPUT"; echo "EOF" >> "$GITHUB_OUTPUT"
 
-      - name: Send Teams Adaptive Card
+      - name: Send teams adaptive card
         if: always()
         env:
           STATUS: ${{ steps.results.outputs.status || 'DEPLOYMENT_FAILED ❌' }}
