@@ -1,10 +1,8 @@
 name: Run all Mabl tests
 
 on:
-  push:
-    branches: ["*"]
-  pull_request:
-    branches: ["*"]
+  push: { branches: ["*"] }
+  pull_request: { branches: ["*"] }
   workflow_dispatch:
   schedule:
     - cron: '30 0 * * *'
@@ -13,45 +11,29 @@ on:
 jobs:
   mabl-tests:
     runs-on: ubuntu-latest
-
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v3
+      - uses: actions/checkout@v3
 
-      - name: Install mabl CLI
-        uses: mablhq/setup-mabl-cli@v1
+      - uses: mablhq/setup-mabl-cli@v1
 
-      - name: Ensure jq is available
-        run: jq --version || (sudo apt-get update -y && sudo apt-get install -y jq)
+      - name: Ensure jq
+        run: jq --version || sudo apt-get update -y && sudo apt-get install -y jq
 
-      # 1) Trigger deployment (capture event_id even if failed)
-      - name: Trigger Mabl deployment (await)
+      - name: Trigger Mabl deployment
         id: trigger
         run: |
           set -euo pipefail
-          echo "Triggering Mabl deployment..."
           set +e
           mabl deployments create \
             --api-key "${{ secrets.API_KEY }}" \
             --application-id "P0JGPLSxCfMzvy27dSGseg-a" \
             --environment-id "AgZiMGbNT4tach5zIIbQbA-e" \
-            --await-completion \
-            --output json > event.json 2>error.log
+            --await-completion --output json > event.json 2>error.log
           exit_code=$?
           set -e
-
-          cat event.json || true
-          cat error.log || true
-
-          # Capture event_id
           event_id=$(jq -r '.id // empty' event.json)
-          echo "event_id=$event_id" >> "$GITHUB_OUTPUT"
-
-          # deployment success flag
           deployment_success=$(jq -r '.execution_results.success // false' event.json)
-          echo "deployment_success=$deployment_success" >> "$GITHUB_OUTPUT"
 
-      # 2) Fetch Mabl results
       - name: Fetch Mabl results
         id: results
         if: steps.trigger.outputs.event_id != ''
@@ -60,64 +42,23 @@ jobs:
           EVENT_ID: ${{ steps.trigger.outputs.event_id }}
         run: |
           set -euo pipefail
-          echo "Fetching results for deployment event: ${EVENT_ID}"
-
           BASE_URL="https://api.mabl.com/execution/result/event/${EVENT_ID}"
-
-          for attempt in $(seq 1 30); do
+          for i in $(seq 1 30); do
             http_code=$(curl -sS -u "key:${API_KEY}" -o results.json -w "%{http_code}" "$BASE_URL" || true)
-            echo "HTTP $http_code (attempt $attempt)"
-            if [[ "$http_code" != "200" ]]; then
-              sleep 10
-              continue
-            fi
-            break
+            [[ "$http_code" == "200" ]] && break
+            sleep 10
           done
 
-          # Metrics
-          total_tests=$(jq -r '.journey_execution_metrics.total // 0' results.json)
-          failed_tests_count=$(jq -r '.journey_execution_metrics.failed // 0' results.json)
-          passed_tests=$(jq -r '.journey_execution_metrics.passed // 0' results.json)
+          total=$(jq -r '.journey_execution_metrics.total // 0' results.json)
+          failed=$(jq -r '.journey_execution_metrics.failed // 0' results.json)
+          passed=$(jq -r '.journey_execution_metrics.passed // 0' results.json)
           duration=$(jq '[.executions[]? | select(.start_time and .stop_time) | (.stop_time - .start_time)] | add // 0 | floor / 1000' results.json)
-          plan_names=$(jq -r '.executions[0]?.plan?.name // "N/A"' results.json)
+          plan=$(jq -r '.executions[0]?.plan?.name // "N/A"' results.json)
 
-          # Map journey_id -> name
           jq -r '.executions[0]?.journeys[]? | "\(.id)|\(.name)"' results.json > journey_map.txt
+          all_tests=$(jq -r '.executions[].journey_executions[]?.journey_id' results.json | while read id; do grep "^$id|" journey_map.txt | cut -d"|" -f2; done | nl -w1 -s". ")
+          failed_tests=$(jq -r '.executions[].journey_executions[]? | select(.success==false) | .journey_id' results.json | while read id; do grep "^$id|" journey_map.txt | cut -d"|" -f2; done | nl -w1 -s". ")
 
-          # All tests
-          all_tests=$(jq -r '.executions[].journey_executions[]?.journey_id' results.json | while read id; do
-            grep "^$id|" journey_map.txt | cut -d"|" -f2
-          done | nl -w1 -s". ")
-
-          # Failed tests
-          failed_tests_names=$(jq -r '.executions[].journey_executions[]? | select(.success==false) | .journey_id' results.json | while read id; do
-            grep "^$id|" journey_map.txt | cut -d"|" -f2
-          done | nl -w1 -s". ")
-
-          # Overall status
-          if [ "$total_tests" -gt 0 ] && [ "$failed_tests_count" -eq 0 ]; then
-            status="PASS ✅"
-          elif [ "$failed_tests_count" -gt 0 ]; then
-            status="FAIL ❌"
-          else
-            status="NO_TESTS ❌"
-          fi
-
-          # Export outputs
-          echo "status=$status" >> "$GITHUB_OUTPUT"
-          echo "total_tests=$total_tests" >> "$GITHUB_OUTPUT"
-          echo "passed_tests=$passed_tests" >> "$GITHUB_OUTPUT"
-          echo "failed_tests=$failed_tests_count" >> "$GITHUB_OUTPUT"
-          echo "duration=$duration" >> "$GITHUB_OUTPUT"
-          echo "plan_names=$plan_names" >> "$GITHUB_OUTPUT"
-          echo "all_tests<<EOF" >> "$GITHUB_OUTPUT"
-          echo "$all_tests" >> "$GITHUB_OUTPUT"
-          echo "EOF" >> "$GITHUB_OUTPUT"
-          echo "failed_tests_names<<EOF" >> "$GITHUB_OUTPUT"
-          echo "$failed_tests_names" >> "$GITHUB_OUTPUT"
-          echo "EOF" >> "$GITHUB_OUTPUT"
-
-      # 3) Send Teams Adaptive Card
       - name: Send Teams Adaptive Card
         if: always()
         env:
@@ -132,27 +73,4 @@ jobs:
         run: |
           set -euo pipefail
           curl -X POST -H "Content-Type: application/json" \
-            -d "{
-              \"attachments\": [
-                {
-                  \"contentType\": \"application/vnd.microsoft.card.adaptive\",
-                  \"content\": {
-                    \"\$schema\": \"http://adaptivecards.io/schemas/adaptive-card.json\",
-                    \"type\": \"AdaptiveCard\",
-                    \"version\": \"1.4\",
-                    \"body\": [
-                      { \"type\": \"TextBlock\", \"size\": \"Large\", \"weight\": \"Bolder\", \"text\": \"Mabl Test Results\" },
-                      { \"type\": \"TextBlock\", \"weight\": \"Bolder\", \"text\": \"Plan(s): ${PLANS}\" },
-                      { \"type\": \"TextBlock\", \"weight\": \"Bolder\", \"text\": \"Status: ${STATUS}\" },
-                      { \"type\": \"TextBlock\", \"weight\": \"Bolder\", \"text\": \"Total Tests: ${TOTAL}\" },
-                      { \"type\": \"TextBlock\", \"weight\": \"Bolder\", \"text\": \"Passed: ${PASSED}\" },
-                      { \"type\": \"TextBlock\", \"weight\": \"Bolder\", \"text\": \"Failed: ${FAILED}\" },
-                      { \"type\": \"TextBlock\", \"weight\": \"Bolder\", \"text\": \"Duration (s): ${DURATION}\" },
-                      { \"type\": \"TextBlock\", \"weight\": \"Bolder\", \"text\": \"Tests:\n${ALL_TESTS}\" },
-                      { \"type\": \"TextBlock\", \"weight\": \"Bolder\", \"text\": \"Failed Tests:\n${FAILED_TESTS}\" }
-                    ]
-                  }
-                }
-              ]
-            }" \
-            "${{ secrets.POWER_AUTOMATE_URL }}"
+            -d "{\"attachments\":[{\"contentType\":\"application/vnd.microsoft.card.adaptive\",\"content\":{\"\$schema\":\"http://adaptivecards.io/schemas/adaptive-card.json\",\"type\":\"AdaptiveCard\",\"version\":\"1.4\",\"body\":[{\"type\":\"TextBlock\",\"size\":\"Large\",\"weight\":\"Bolder\",\"text\":\"Mabl Test Results\"},{\"type\":\"TextBlock\",\"weight\":\"Bolder\",\"text\":\"Plan(s): ${PLANS}\"},{\"type\":\"TextBlock\",\"weight\":\"Bolder\",\"text\":\"Status: ${STATUS}\"},{\"type\":\"TextBlock\",\"weight\":\"Bolder\",\"text\":\"Total Tests: ${TOTAL}\"},{\"type\":\"TextBlock\",\"weight\":\"Bolder\",\"text\":\"Passed: ${PASSED}\"},{\"type\":\"TextBlock\",\"weight\":\"Bolder\",\"text\":\"Failed: ${FAILED}\"},{\"type\":\"TextBlock\",\"weight\":\"Bolder\",\"text\":\"Duration (s): ${DURATION}\"},{\"type\":\"TextBlock\",\"weight\":\"Bolder\",\"text\":\"Tests:\n${ALL_TESTS}\"},{\"type\":\"TextBlock\",\"weight\":\"Bolder\",\"text\":\"Failed Tests:\n${FAILED_TESTS}\"}]}}]}" "${{ secrets.POWER_AUTOMATE_URL }}"
