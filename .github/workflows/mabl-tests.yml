@@ -33,6 +33,8 @@ jobs:
           set -e
           event_id=$(jq -r '.id // empty' event.json)
           deployment_success=$(jq -r '.execution_results.success // false' event.json)
+          echo "event_id=$event_id" >> "$GITHUB_OUTPUT"
+          echo "deployment_success=$deployment_success" >> "$GITHUB_OUTPUT"
 
       - name: Fetch Mabl results
         id: results
@@ -58,6 +60,17 @@ jobs:
           jq -r '.executions[0]?.journeys[]? | "\(.id)|\(.name)"' results.json > journey_map.txt
           all_tests=$(jq -r '.executions[].journey_executions[]?.journey_id' results.json | while read id; do grep "^$id|" journey_map.txt | cut -d"|" -f2; done | nl -w1 -s". ")
           failed_tests=$(jq -r '.executions[].journey_executions[]? | select(.success==false) | .journey_id' results.json | while read id; do grep "^$id|" journey_map.txt | cut -d"|" -f2; done | nl -w1 -s". ")
+
+          status=$([[ "$total" -gt 0 && "$failed" -eq 0 ]] && echo "PASS ✅" || ([[ "$failed" -gt 0 ]] && echo "FAIL ❌" || echo "NO_TESTS ❌"))
+
+          echo "status=$status" >> "$GITHUB_OUTPUT"
+          echo "total_tests=$total" >> "$GITHUB_OUTPUT"
+          echo "passed_tests=$passed" >> "$GITHUB_OUTPUT"
+          echo "failed_tests=$failed" >> "$GITHUB_OUTPUT"
+          echo "duration=$duration" >> "$GITHUB_OUTPUT"
+          echo "plan_names=$plan" >> "$GITHUB_OUTPUT"
+          echo "all_tests<<EOF" >> "$GITHUB_OUTPUT"; echo "$all_tests" >> "$GITHUB_OUTPUT"; echo "EOF" >> "$GITHUB_OUTPUT"
+          echo "failed_tests_names<<EOF" >> "$GITHUB_OUTPUT"; echo "$failed_tests" >> "$GITHUB_OUTPUT"; echo "EOF" >> "$GITHUB_OUTPUT"
 
       - name: Send Teams Adaptive Card
         if: always()
