@@ -75,7 +75,7 @@ jobs:
             echo "test_case_names=N/A" >> "$GITHUB_OUTPUT"
             exit 0
           fi
-
+          
           BASE_URL="https://api.mabl.com/execution/result/event/${EVENT_ID}"
 
       # 3) Post the (bold) TextBlocks Adaptive Card to Teams/Power Automate
