@@ -30,7 +30,6 @@ jobs:
         run: |
           set -euo pipefail
           echo "Triggering Mabl deployment..."
-          # allow command to fail without exiting
           set +e
           mabl deployments create \
             --api-key "${{ secrets.API_KEY }}" \
@@ -44,7 +43,7 @@ jobs:
           cat event.json || true
           cat error.log || true
 
-          # capture event id even if deployment failed
+          # Capture event_id
           event_id=$(jq -r '.id // empty' event.json)
           echo "event_id=$event_id" >> "$GITHUB_OUTPUT"
 
@@ -94,29 +93,38 @@ jobs:
           echo "Raw results:"
           cat results.json
 
+          # All test names
+          all_tests=$(jq -r '[.executions[]?.journey_executions[]?.journey_name] | unique | .[]' results.json | nl -w1 -s". ")
+          # Failed test names
+          failed_tests_names=$(jq -r '[.executions[]?.journey_executions[]? | select(.success==false) | .journey_name] | .[]' results.json | nl -w1 -s". ")
+
           total_tests=$(jq -r '.journey_execution_metrics.total // 0' results.json)
-          failed_tests=$(jq -r '.journey_execution_metrics.failed // 0' results.json)
+          failed_tests_count=$(jq -r '.journey_execution_metrics.failed // 0' results.json)
           passed_tests=$(jq -r '.journey_execution_metrics.passed // 0' results.json)
           duration=$(jq '[.executions[]? | select(.start_time and .stop_time) | (.stop_time - .start_time)] | add // 0 | floor / 1000' results.json)
           plan_names=$(jq -r '.executions[0]?.plan?.name // "N/A"' results.json)
-          test_case_names=$(jq -r '[.executions[]?.journey_executions[]? | select(.success==false) | .journey_id] | unique | join(", ") // "N/A"' results.json)
 
-          # Overall status
-          if [ "$total_tests" -gt 0 ] && [ "$failed_tests" -eq 0 ]; then
+          if [ "$total_tests" -gt 0 ] && [ "$failed_tests_count" -eq 0 ]; then
             status="PASS ✅"
-          elif [ "$failed_tests" -gt 0 ]; then
+          elif [ "$failed_tests_count" -gt 0 ]; then
             status="FAIL ❌"
           else
             status="NO_TESTS ❌"
           fi
 
+          # Export outputs
           echo "status=$status" >> "$GITHUB_OUTPUT"
           echo "total_tests=$total_tests" >> "$GITHUB_OUTPUT"
           echo "passed_tests=$passed_tests" >> "$GITHUB_OUTPUT"
-          echo "failed_tests=$failed_tests" >> "$GITHUB_OUTPUT"
+          echo "failed_tests=$failed_tests_count" >> "$GITHUB_OUTPUT"
           echo "duration=$duration" >> "$GITHUB_OUTPUT"
           echo "plan_names=$plan_names" >> "$GITHUB_OUTPUT"
-          echo "test_case_names=$test_case_names" >> "$GITHUB_OUTPUT"
+          echo "all_tests<<EOF" >> "$GITHUB_OUTPUT"
+          echo "$all_tests" >> "$GITHUB_OUTPUT"
+          echo "EOF" >> "$GITHUB_OUTPUT"
+          echo "failed_tests_names<<EOF" >> "$GITHUB_OUTPUT"
+          echo "$failed_tests_names" >> "$GITHUB_OUTPUT"
+          echo "EOF" >> "$GITHUB_OUTPUT"
 
       # 3) Send Teams Adaptive Card (always run)
       - name: Send Teams Adaptive Card
@@ -128,7 +136,8 @@ jobs:
           FAILED: ${{ steps.results.outputs.failed_tests || 0 }}
           DURATION: ${{ steps.results.outputs.duration || 0 }}
           PLANS: ${{ steps.results.outputs.plan_names || 'N/A' }}
-          TESTS: ${{ steps.results.outputs.test_case_names || 'N/A' }}
+          ALL_TESTS: ${{ steps.results.outputs.all_tests || 'N/A' }}
+          FAILED_TESTS: ${{ steps.results.outputs.failed_tests_names || 'N/A' }}
         run: |
           set -euo pipefail
           curl -X POST -H "Content-Type: application/json" \
@@ -148,7 +157,8 @@ jobs:
                       { \"type\": \"TextBlock\", \"weight\": \"Bolder\", \"text\": \"Passed: ${PASSED}\" },
                       { \"type\": \"TextBlock\", \"weight\": \"Bolder\", \"text\": \"Failed: ${FAILED}\" },
                       { \"type\": \"TextBlock\", \"weight\": \"Bolder\", \"text\": \"Duration (s): ${DURATION}\" },
-                      { \"type\": \"TextBlock\", \"weight\": \"Bolder\", \"text\": \"Failed Test IDs: ${TESTS}\" }
+                      { \"type\": \"TextBlock\", \"weight\": \"Bolder\", \"text\": \"Tests:\n${ALL_TESTS}\" },
+                      { \"type\": \"TextBlock\", \"weight\": \"Bolder\", \"text\": \"Failed Tests:\n${FAILED_TESTS}\" }
                     ]
                   }
                 }
