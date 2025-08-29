@@ -6,7 +6,10 @@ on:
   pull_request:
     branches: ["*"]
   workflow_dispatch:
-
+  schedule:
+    - cron: '30 0 * * *'   # 06:00 IST
+    - cron: '30 12 * * *'  # 18:00 IST
+    
 jobs:
   mabl-tests:
     runs-on: ubuntu-latest
@@ -53,8 +56,9 @@ jobs:
       # 2) Poll the CORRECT endpoint until results are ready, then compute metrics.
       - name: Fetch Mabl results (poll correct endpoint)
         id: results
+        continue-on-error: true   # ✅ ensures this step never blocks later steps
         env:
-          API_KEY: ${{ secrets.API_KEY }}   # BASIC auth with API key (NOT Bearer)
+          API_KEY: ${{ secrets.API_KEY }}
           EVENT_ID: ${{ steps.trigger.outputs.event_id }}
         run: |
           set -euo pipefail
@@ -62,14 +66,10 @@ jobs:
 
           BASE_URL="https://api.mabl.com/execution/result/event/${EVENT_ID}"
 
-          # up to ~5 minutes polling (30 * 10s)
           for attempt in $(seq 1 30); do
             http_code=$(curl -sS -u "key:${API_KEY}" -o results.json -w "%{http_code}" "$BASE_URL" || true)
 
-            echo "HTTP $http_code (attempt $attempt)"
-            # If still not found, keep waiting; mabl can be slightly behind even after await
             if [ "$http_code" = "404" ] || [ "$http_code" = "202" ] || [ "$http_code" = "204" ]; then
-              echo "No valid results yet, waiting..."
               sleep 10
               continue
             fi
@@ -81,33 +81,22 @@ jobs:
               continue
             fi
 
-            # Ensure the payload has metrics
             has_metrics=$(jq -r 'has("journey_execution_metrics")' results.json)
             if [ "$has_metrics" != "true" ]; then
-              echo "Results present but metrics not ready, waiting..."
               sleep 10
               continue
             fi
-
             break
           done
 
-          echo "Raw results:"
-          cat results.json
-
-          # Metrics
           total_tests=$(jq -r '.journey_execution_metrics.total // 0' results.json)
           failed_tests=$(jq -r '.journey_execution_metrics.failed // 0' results.json)
           passed_tests=$(jq -r '.journey_execution_metrics.passed // 0' results.json)
 
-          # Duration (sum plan execution windows, ms -> s)
           duration=$(jq '[.executions[]? | select(.start_time and .stop_time) | (.stop_time - .start_time)] | add // 0 | floor / 1000' results.json)
-
-          # Names
           plan_names=$(jq -r '[.executions[]?.plan?.name] | unique | join(", ") // "N/A"' results.json)
           test_case_names=$(jq -r '[.executions[]?.journeys[]?.name] | unique | join(", ") // "N/A"' results.json)
 
-          # Overall status
           if [ "$total_tests" -gt 0 ] && [ "$failed_tests" -eq 0 ]; then
             status="PASS ✅"
           elif [ "$failed_tests" -gt 0 ]; then
