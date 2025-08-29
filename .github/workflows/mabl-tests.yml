@@ -24,48 +24,35 @@ jobs:
       - name: Ensure jq is available
         run: jq --version || (sudo apt-get update -y && sudo apt-get install -y jq)
 
-      # 1) Trigger deployment (mark continue-on-error)
+      # 1) Trigger deployment (capture event_id even if failed)
       - name: Trigger Mabl deployment (await)
         id: trigger
-        continue-on-error: true
         run: |
           set -euo pipefail
           echo "Triggering Mabl deployment..."
-          if ! mabl deployments create \
+          # allow command to fail without exiting
+          set +e
+          mabl deployments create \
             --api-key "${{ secrets.API_KEY }}" \
             --application-id "P0JGPLSxCfMzvy27dSGseg-a" \
             --environment-id "AgZiMGbNT4tach5zIIbQbA-e" \
             --await-completion \
-            --output json > event.json 2>error.log; then
-              echo "❌ Mabl deployment failed"
-              cat error.log || true
-              cat event.json || true
-              # Set default outputs for failed deployment
-              echo "status=DEPLOYMENT_FAILED ❌" >> "$GITHUB_OUTPUT"
-              echo "total_tests=0" >> "$GITHUB_OUTPUT"
-              echo "failed_tests=0" >> "$GITHUB_OUTPUT"
-              echo "passed_tests=0" >> "$GITHUB_OUTPUT"
-              echo "duration=0" >> "$GITHUB_OUTPUT"
-              echo "plan_names=N/A" >> "$GITHUB_OUTPUT"
-              echo "test_case_names=N/A" >> "$GITHUB_OUTPUT"
-              exit 0
-          fi
+            --output json > event.json 2>error.log
+          exit_code=$?
+          set -e
 
+          cat event.json || true
+          cat error.log || true
+
+          # capture event id even if deployment failed
           event_id=$(jq -r '.id // empty' event.json)
-          if [ -z "$event_id" ] || [ "$event_id" = "null" ]; then
-            echo "❌ No event id in response."
-            echo "status=NO_EVENT ❌" >> "$GITHUB_OUTPUT"
-            echo "total_tests=0" >> "$GITHUB_OUTPUT"
-            echo "failed_tests=0" >> "$GITHUB_OUTPUT"
-            echo "passed_tests=0" >> "$GITHUB_OUTPUT"
-            echo "duration=0" >> "$GITHUB_OUTPUT"
-            echo "plan_names=N/A" >> "$GITHUB_OUTPUT"
-            echo "test_case_names=N/A" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
           echo "event_id=$event_id" >> "$GITHUB_OUTPUT"
 
-      # 2) Fetch Mabl results (only if deployment succeeded)
+          # deployment success flag
+          deployment_success=$(jq -r '.execution_results.success // false' event.json)
+          echo "deployment_success=$deployment_success" >> "$GITHUB_OUTPUT"
+
+      # 2) Fetch Mabl results (run if event_id exists)
       - name: Fetch Mabl results
         id: results
         if: steps.trigger.outputs.event_id != ''
@@ -111,9 +98,10 @@ jobs:
           failed_tests=$(jq -r '.journey_execution_metrics.failed // 0' results.json)
           passed_tests=$(jq -r '.journey_execution_metrics.passed // 0' results.json)
           duration=$(jq '[.executions[]? | select(.start_time and .stop_time) | (.stop_time - .start_time)] | add // 0 | floor / 1000' results.json)
-          plan_names=$(jq -r '[.executions[]?.plan?.name] | unique | join(", ") // "N/A"' results.json)
-          test_case_names=$(jq -r '[.executions[]?.journeys[]?.name] | unique | join(", ") // "N/A"' results.json)
+          plan_names=$(jq -r '.executions[0]?.plan?.name // "N/A"' results.json)
+          test_case_names=$(jq -r '[.executions[]?.journey_executions[]? | select(.success==false) | .journey_id] | unique | join(", ") // "N/A"' results.json)
 
+          # Overall status
           if [ "$total_tests" -gt 0 ] && [ "$failed_tests" -eq 0 ]; then
             status="PASS ✅"
           elif [ "$failed_tests" -gt 0 ]; then
@@ -130,17 +118,17 @@ jobs:
           echo "plan_names=$plan_names" >> "$GITHUB_OUTPUT"
           echo "test_case_names=$test_case_names" >> "$GITHUB_OUTPUT"
 
-      # 3) Send Adaptive Card (always run)
+      # 3) Send Teams Adaptive Card (always run)
       - name: Send Teams Adaptive Card
         if: always()
         env:
-          STATUS: ${{ steps.results.outputs.status || steps.trigger.outputs.status }}
-          TOTAL: ${{ steps.results.outputs.total_tests || steps.trigger.outputs.total_tests }}
-          PASSED: ${{ steps.results.outputs.passed_tests || steps.trigger.outputs.passed_tests }}
-          FAILED: ${{ steps.results.outputs.failed_tests || steps.trigger.outputs.failed_tests }}
-          DURATION: ${{ steps.results.outputs.duration || steps.trigger.outputs.duration }}
-          PLANS: ${{ steps.results.outputs.plan_names || steps.trigger.outputs.plan_names }}
-          TESTS: ${{ steps.results.outputs.test_case_names || steps.trigger.outputs.test_case_names }}
+          STATUS: ${{ steps.results.outputs.status || 'DEPLOYMENT_FAILED ❌' }}
+          TOTAL: ${{ steps.results.outputs.total_tests || 0 }}
+          PASSED: ${{ steps.results.outputs.passed_tests || 0 }}
+          FAILED: ${{ steps.results.outputs.failed_tests || 0 }}
+          DURATION: ${{ steps.results.outputs.duration || 0 }}
+          PLANS: ${{ steps.results.outputs.plan_names || 'N/A' }}
+          TESTS: ${{ steps.results.outputs.test_case_names || 'N/A' }}
         run: |
           set -euo pipefail
           curl -X POST -H "Content-Type: application/json" \
@@ -160,7 +148,7 @@ jobs:
                       { \"type\": \"TextBlock\", \"weight\": \"Bolder\", \"text\": \"Passed: ${PASSED}\" },
                       { \"type\": \"TextBlock\", \"weight\": \"Bolder\", \"text\": \"Failed: ${FAILED}\" },
                       { \"type\": \"TextBlock\", \"weight\": \"Bolder\", \"text\": \"Duration (s): ${DURATION}\" },
-                      { \"type\": \"TextBlock\", \"weight\": \"Bolder\", \"text\": \"Tests: ${TESTS}\" }
+                      { \"type\": \"TextBlock\", \"weight\": \"Bolder\", \"text\": \"Failed Test IDs: ${TESTS}\" }
                     ]
                   }
                 }
