@@ -6,9 +6,9 @@ on:
   pull_request:
     branches: ["*"]
   workflow_dispatch:
-  schedule:
-    - cron: '30 0 * * *'
-    - cron: '30 12 * * *'
+   schedule:
+    - cron: '30 0 * * *' 
+    - cron: '30 12 * * *' 
 
 jobs:
   mabl-tests:
@@ -36,105 +36,99 @@ jobs:
             --environment-id "AgZiMGbNT4tach5zIIbQbA-e" \
             --await-completion \
             --output json > event.json 2>error.log; then
-              echo "❌ Mabl deployment failed."
-              DEPLOYMENT_FAILED=true
-              DEPLOYMENT_ERROR=$(cat error.log || true)
-              echo "deployment_failed=$DEPLOYMENT_FAILED" >> "$GITHUB_OUTPUT"
-              echo "deployment_error=$DEPLOYMENT_ERROR" >> "$GITHUB_OUTPUT"
-          else
-              DEPLOYMENT_FAILED=false
-              echo "deployment_failed=$DEPLOYMENT_FAILED" >> "$GITHUB_OUTPUT"
-
-              event_id=$(jq -r '.id // empty' event.json)
-              if [ -z "$event_id" ] || [ "$event_id" = "null" ]; then
-                echo "❌ No event id in response."
-                DEPLOYMENT_FAILED=true
-                echo "deployment_failed=$DEPLOYMENT_FAILED" >> "$GITHUB_OUTPUT"
-              else
-                echo "event_id=$event_id" >> "$GITHUB_OUTPUT"
-              fi
+              echo "❌ Mabl deployment failed:"
+              cat error.log || true
+              cat event.json || true
+              exit 1
           fi
+      
+          echo "Event JSON:"
+          cat event.json
+
+          event_id=$(jq -r '.id // empty' event.json)
+          if [ -z "$event_id" ] || [ "$event_id" = "null" ]; then
+            echo "❌ No event id in response. Exiting."
+            cat event.json
+            exit 1
+          fi
+          echo "event_id=$event_id" >> "$GITHUB_OUTPUT"
 
       # 2) Poll the CORRECT endpoint until results are ready, then compute metrics.
       - name: Fetch Mabl results (poll correct endpoint)
         id: results
-        if: always()
         env:
-          API_KEY: ${{ secrets.API_KEY }}
+          API_KEY: ${{ secrets.API_KEY }}   # BASIC auth with API key (NOT Bearer)
           EVENT_ID: ${{ steps.trigger.outputs.event_id }}
-          DEPLOYMENT_FAILED: ${{ steps.trigger.outputs.deployment_failed }}
-          run: |
-            set -euo pipefail
-        
-            if [ -z "$EVENT_ID" ]; then
-              echo "No event ID, cannot poll results."
-              total_tests=0
-              failed_tests=0
-              passed_tests=0
-              duration=0
-              plan_names="N/A"
-              test_case_names="N/A"
-              status="FAIL ❌"
-            else
-              echo "Polling results for event ID: $EVENT_ID"
-        
-              BASE_URL="https://api.mabl.com/execution/result/event/${EVENT_ID}"
-        
-              # up to ~5 minutes polling (30 * 10s)
-              for attempt in $(seq 1 30); do
-                http_code=$(curl -sS -u "key:${API_KEY}" -o results.json -w "%{http_code}" "$BASE_URL" || true)
-                echo "HTTP $http_code (attempt $attempt)"
-        
-                if [ "$http_code" = "404" ] || [ "$http_code" = "202" ] || [ "$http_code" = "204" ]; then
-                  echo "No valid results yet, waiting..."
-                  sleep 10
-                  continue
-                fi
-        
-                if [ "$http_code" != "200" ]; then
-                  echo "Unexpected HTTP code: $http_code"
-                  cat results.json || true
-                  sleep 10
-                  continue
-                fi
-        
-                has_metrics=$(jq -r 'has("journey_execution_metrics")' results.json)
-                if [ "$has_metrics" != "true" ]; then
-                  echo "Results present but metrics not ready, waiting..."
-                  sleep 10
-                  continue
-                fi
-        
-                break
-              done
-        
-              total_tests=$(jq -r '.journey_execution_metrics.total // 0' results.json)
-              failed_tests=$(jq -r '.journey_execution_metrics.failed // 0' results.json)
-              passed_tests=$(jq -r '.journey_execution_metrics.passed // 0' results.json)
-              duration=$(jq '[.executions[]? | select(.start_time and .stop_time) | (.stop_time - .start_time)] | add // 0 | floor / 1000' results.json)
-              plan_names=$(jq -r '[.executions[]?.plan?.name] | unique | join(", ") // "N/A"' results.json)
-              test_case_names=$(jq -r '[.executions[]?.journeys[]?.name] | unique | join(", ") // "N/A"' results.json)
-        
-              if [ "$total_tests" -gt 0 ] && [ "$failed_tests" -eq 0 ]; then
-                status="PASS ✅"
-              elif [ "$failed_tests" -gt 0 ]; then
-                status="FAIL ❌"
-              else
-                status="NO TESTS ❌"
-              fi
-            fi
-        
-            echo "status=$status" >> "$GITHUB_OUTPUT"
-            echo "total_tests=$total_tests" >> "$GITHUB_OUTPUT"
-            echo "passed_tests=$passed_tests" >> "$GITHUB_OUTPUT"
-            echo "failed_tests=$failed_tests" >> "$GITHUB_OUTPUT"
-            echo "duration=$duration" >> "$GITHUB_OUTPUT"
-            echo "plan_names=$plan_names" >> "$GITHUB_OUTPUT"
-            echo "test_case_names=$test_case_names" >> "$GITHUB_OUTPUT"
+        run: |
+          set -euo pipefail
+          echo "Fetching results for deployment event: ${EVENT_ID}"
 
-      # 3) Post the Adaptive Card to Teams/Power Automate
+          BASE_URL="https://api.mabl.com/execution/result/event/${EVENT_ID}"
+
+          # up to ~5 minutes polling (30 * 10s)
+          for attempt in $(seq 1 30); do
+            http_code=$(curl -sS -u "key:${API_KEY}" -o results.json -w "%{http_code}" "$BASE_URL" || true)
+
+            echo "HTTP $http_code (attempt $attempt)"
+            # If still not found, keep waiting; mabl can be slightly behind even after await
+            if [ "$http_code" = "404" ] || [ "$http_code" = "202" ] || [ "$http_code" = "204" ]; then
+              echo "No valid results yet, waiting..."
+              sleep 10
+              continue
+            fi
+
+            if [ "$http_code" != "200" ]; then
+              echo "Unexpected HTTP code: $http_code"
+              cat results.json || true
+              sleep 10
+              continue
+            fi
+
+            # Ensure the payload has metrics
+            has_metrics=$(jq -r 'has("journey_execution_metrics")' results.json)
+            if [ "$has_metrics" != "true" ]; then
+              echo "Results present but metrics not ready, waiting..."
+              sleep 10
+              continue
+            fi
+
+            break
+          done
+
+          echo "Raw results:"
+          cat results.json
+
+          # Metrics
+          total_tests=$(jq -r '.journey_execution_metrics.total // 0' results.json)
+          failed_tests=$(jq -r '.journey_execution_metrics.failed // 0' results.json)
+          passed_tests=$(jq -r '.journey_execution_metrics.passed // 0' results.json)
+
+          # Duration (sum plan execution windows, ms -> s)
+          duration=$(jq '[.executions[]? | select(.start_time and .stop_time) | (.stop_time - .start_time)] | add // 0 | floor / 1000' results.json)
+
+          # Names
+          plan_names=$(jq -r '[.executions[]?.plan?.name] | unique | join(", ") // "N/A"' results.json)
+          test_case_names=$(jq -r '[.executions[]?.journeys[]?.name] | unique | join(", ") // "N/A"' results.json)
+
+          # Overall status
+          if [ "$total_tests" -gt 0 ] && [ "$failed_tests" -eq 0 ]; then
+            status="PASS ✅"
+          elif [ "$failed_tests" -gt 0 ]; then
+            status="FAIL ❌"
+          else
+            status="NO TESTS ❌"
+          fi
+
+          echo "status=$status" >> "$GITHUB_OUTPUT"
+          echo "total_tests=$total_tests" >> "$GITHUB_OUTPUT"
+          echo "passed_tests=$passed_tests" >> "$GITHUB_OUTPUT"
+          echo "failed_tests=$failed_tests" >> "$GITHUB_OUTPUT"
+          echo "duration=$duration" >> "$GITHUB_OUTPUT"
+          echo "plan_names=$plan_names" >> "$GITHUB_OUTPUT"
+          echo "test_case_names=$test_case_names" >> "$GITHUB_OUTPUT"
+
+      # 3) Post the (bold) TextBlocks Adaptive Card to Teams/Power Automate
       - name: Send Teams Adaptive Card
-        if: always()
         env:
           STATUS: ${{ steps.results.outputs.status }}
           TOTAL: ${{ steps.results.outputs.total_tests }}
@@ -143,14 +137,8 @@ jobs:
           DURATION: ${{ steps.results.outputs.duration }}
           PLANS: ${{ steps.results.outputs.plan_names }}
           TESTS: ${{ steps.results.outputs.test_case_names }}
-          DEPLOYMENT_ERROR: ${{ steps.trigger.outputs.deployment_error }}
         run: |
           set -euo pipefail
-          ERROR_MSG=""
-          if [ -n "$DEPLOYMENT_ERROR" ]; then
-            ERROR_MSG="❌ Deployment error: $DEPLOYMENT_ERROR"
-          fi
-
           curl -X POST -H "Content-Type: application/json" \
             -d "{
               \"attachments\": [
@@ -168,8 +156,7 @@ jobs:
                       { \"type\": \"TextBlock\", \"weight\": \"Bolder\", \"text\": \"Passed: ${PASSED}\" },
                       { \"type\": \"TextBlock\", \"weight\": \"Bolder\", \"text\": \"Failed: ${FAILED}\" },
                       { \"type\": \"TextBlock\", \"weight\": \"Bolder\", \"text\": \"Duration (s): ${DURATION}\" },
-                      { \"type\": \"TextBlock\", \"weight\": \"Bolder\", \"text\": \"Tests: ${TESTS}\" },
-                      { \"type\": \"TextBlock\", \"weight\": \"Bolder\", \"color\": \"Attention\", \"text\": \"${ERROR_MSG}\" }
+                      { \"type\": \"TextBlock\", \"weight\": \"Bolder\", \"text\": \"Tests: ${TESTS}\" }
                     ]
                   }
                 }
