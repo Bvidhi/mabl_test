@@ -7,10 +7,18 @@ on:
     branches: ["*"]
   workflow_dispatch:
   schedule:
-    - cron: "30 0 * * *"   
-    - cron: "45 12 * * *"
+    - cron: "30 0 * * *"    
+    - cron: "0 13 * * *"   
 
 jobs:
+  check-schedule:
+    runs-on: ubuntu-latest
+    steps:
+      - run: |
+          echo "✅ Schedule triggered"
+          echo "UTC now: $(date -u)"
+          echo "IST now: $(TZ=Asia/Kolkata date)"
+
   mabl-tests:
     runs-on: ubuntu-latest
     steps:
