@@ -96,16 +96,24 @@ jobs:
           echo "Raw results:"
           cat results.json
 
-          total_tests=$(jq -r '.journey_execution_metrics.total // 0' results.json)
-          failed_tests=$(jq -r '.journey_execution_metrics.failed // 0' results.json)
-          passed_tests=$(jq -r '.journey_execution_metrics.passed // 0' results.json)
-
-          duration=$(jq '[.executions[]? | select(.start_time and .stop_time) | (.stop_time - .start_time)] | add // 0 | floor / 1000' results.json)
-
-          plan_names=$(jq -r '[.executions[]?.plan?.name] | unique | join(", ") // "N/A"' results.json)
-
-          # Numbered test case names, one per line
-          test_case_names=$(jq -r '[.executions[]?.journeys[]?.name] | unique | to_entries | map("\(.key+1). \(.value)") | join("\n") // "N/A"' results.json)
+          total_tests=$(jq -r '.journey_execution_metrics.total // 0' results.json || echo 0)
+          failed_tests=$(jq -r '.journey_execution_metrics.failed // 0' results.json || echo 0)
+          passed_tests=$(jq -r '.journey_execution_metrics.passed // 0' results.json || echo 0)
+          
+          # Duration safe default
+          duration=$(jq '[.executions[]? | select(.start_time and .stop_time) | (.stop_time - .start_time)] 
+                        | add // 0 | floor / 1000' results.json || echo 0)
+          
+          # Test names safe default
+          test_case_names=$(jq -r '
+            [.executions[]?.journey_executions[]?.name // empty]
+            | to_entries
+            | map("\(.key+1). \(.value | gsub("[:\\n]";""))")
+            | join("\n")
+          ' results.json 2>/dev/null || echo "N/A")
+          
+          # Ensure non-empty
+          : "${test_case_names:=N/A}"
 
           if [ "$total_tests" -gt 0 ] && [ "$failed_tests" -eq 0 ]; then
             status="PASS ✅"
