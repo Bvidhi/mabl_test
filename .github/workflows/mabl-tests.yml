@@ -51,7 +51,7 @@ jobs:
           deployment_success=$(jq -r '.execution_results.success // false' event.json)
           echo "deployment_success=$deployment_success" >> "$GITHUB_OUTPUT"
 
-      # 2) Fetch Mabl results (run if event_id exists)
+      # 2) Fetch Mabl results
       - name: Fetch Mabl results
         id: results
         if: steps.trigger.outputs.event_id != ''
@@ -67,43 +67,34 @@ jobs:
           for attempt in $(seq 1 30); do
             http_code=$(curl -sS -u "key:${API_KEY}" -o results.json -w "%{http_code}" "$BASE_URL" || true)
             echo "HTTP $http_code (attempt $attempt)"
-            if [ "$http_code" = "404" ] || [ "$http_code" = "202" ] || [ "$http_code" = "204" ]; then
-              echo "Results not ready, waiting..."
+            if [[ "$http_code" != "200" ]]; then
               sleep 10
               continue
             fi
-
-            if [ "$http_code" != "200" ]; then
-              echo "Unexpected HTTP code: $http_code"
-              cat results.json || true
-              sleep 10
-              continue
-            fi
-
-            has_metrics=$(jq -r 'has("journey_execution_metrics")' results.json)
-            if [ "$has_metrics" != "true" ]; then
-              echo "Results present but metrics not ready, waiting..."
-              sleep 10
-              continue
-            fi
-
             break
           done
 
-          echo "Raw results:"
-          cat results.json
-
-          # All test names
-          all_tests=$(jq -r '[.executions[]?.journey_executions[]?.journey_name] | unique | .[]' results.json | nl -w1 -s". ")
-          # Failed test names
-          failed_tests_names=$(jq -r '[.executions[]?.journey_executions[]? | select(.success==false) | .journey_name] | .[]' results.json | nl -w1 -s". ")
-
+          # Metrics
           total_tests=$(jq -r '.journey_execution_metrics.total // 0' results.json)
           failed_tests_count=$(jq -r '.journey_execution_metrics.failed // 0' results.json)
           passed_tests=$(jq -r '.journey_execution_metrics.passed // 0' results.json)
           duration=$(jq '[.executions[]? | select(.start_time and .stop_time) | (.stop_time - .start_time)] | add // 0 | floor / 1000' results.json)
           plan_names=$(jq -r '.executions[0]?.plan?.name // "N/A"' results.json)
 
+          # Map journey_id -> name
+          jq -r '.executions[0]?.journeys[]? | "\(.id)|\(.name)"' results.json > journey_map.txt
+
+          # All tests
+          all_tests=$(jq -r '.executions[].journey_executions[]?.journey_id' results.json | while read id; do
+            grep "^$id|" journey_map.txt | cut -d"|" -f2
+          done | nl -w1 -s". ")
+
+          # Failed tests
+          failed_tests_names=$(jq -r '.executions[].journey_executions[]? | select(.success==false) | .journey_id' results.json | while read id; do
+            grep "^$id|" journey_map.txt | cut -d"|" -f2
+          done | nl -w1 -s". ")
+
+          # Overall status
           if [ "$total_tests" -gt 0 ] && [ "$failed_tests_count" -eq 0 ]; then
             status="PASS ✅"
           elif [ "$failed_tests_count" -gt 0 ]; then
@@ -126,7 +117,7 @@ jobs:
           echo "$failed_tests_names" >> "$GITHUB_OUTPUT"
           echo "EOF" >> "$GITHUB_OUTPUT"
 
-      # 3) Send Teams Adaptive Card (always run)
+      # 3) Send Teams Adaptive Card
       - name: Send Teams Adaptive Card
         if: always()
         env:
