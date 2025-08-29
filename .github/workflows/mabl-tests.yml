@@ -6,7 +6,7 @@ on:
   pull_request:
     branches: ["*"]
   workflow_dispatch:
-  schedule:
+   schedule:
     - cron: '30 0 * * *' 
     - cron: '30 12 * * *' 
 
@@ -52,7 +52,6 @@ jobs:
             exit 1
           fi
           echo "event_id=$event_id" >> "$GITHUB_OUTPUT"
-
 
       # 2) Poll the CORRECT endpoint until results are ready, then compute metrics.
       - name: Fetch Mabl results (poll correct endpoint)
