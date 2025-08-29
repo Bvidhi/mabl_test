@@ -25,24 +25,17 @@ jobs:
       - name: Trigger Mabl deployment (await)
         id: trigger
         run: |
-          set -euo pipefail
-          echo "Triggering Mabl deployment..."
-          mabl deployments create \
-            --api-key "${{ secrets.API_KEY }}" \
-            --application-id "Oonui6hTcPcWFf7v4y4exA-a" \
-            --environment-id "JOHGzivFdBgSLdoq2kCagA-e" \
-            --await-completion \
-            --output json > event.json
-
-          echo "Event JSON:"
-          cat event.json
-
-          event_id=$(jq -r '.id // empty' event.json)
-          if [ -z "$event_id" ] || [ "$event_id" = "null" ]; then
-            echo "No event id in response. Exiting."
-            exit 1
-          fi
-          echo "event_id=$event_id" >> "$GITHUB_OUTPUT"
+            set -euo pipefail
+            echo "Triggering Mabl deployment..."
+            mabl deployments create \
+              --api-key "${{ secrets.API_KEY }}" \
+              --application-id "Oonui6hTcPcWFf7v4y4exA-a" \
+              --environment-id "JOHGzivFdBgSLdoq2kCagA-e" \
+              --await-completion \
+              --output json > event.json || (echo "Deployment failed"; cat event.json || true; exit 1)
+        
+            echo "Event JSON:"
+            cat event.json
 
       # 2) Poll the CORRECT endpoint until results are ready, then compute metrics.
       - name: Fetch Mabl results (poll correct endpoint)
