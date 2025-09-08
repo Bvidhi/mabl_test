@@ -8,8 +8,6 @@ on:
   workflow_dispatch:
   schedule:
     - cron: '30 0 * * *'  
-    - cron: '30 9 * * *'
-    - cron: '30 14 * * *'
 
 jobs:
   check-schedule:
